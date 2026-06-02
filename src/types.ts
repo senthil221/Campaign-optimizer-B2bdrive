@@ -109,6 +109,7 @@ export interface Campaign {
 export type CampaignStatus =
   | 'critical'
   | 'upload_soon'
+  | 'unmapped'
   | 'no_capacity'
   | 'healthy'
   | 'ended'
@@ -123,6 +124,13 @@ export interface CampaignComputed {
   sharedTagDaysLeft: number | null
   status: CampaignStatus
   statusReason: string
+}
+
+/** A tag's volume joined with the demand of campaigns mapped to it. */
+export interface TagForecast extends TagVolume {
+  mappedCampaigns: number
+  sharedTagDemand: number
+  sharedTagDaysLeft: number | null
 }
 
 /** campaign_id (string) -> tag_name */

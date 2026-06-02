@@ -1,8 +1,9 @@
-# Smartlead Campaign Lead-Count Dashboard
+# Campaign Lead Forecast
 
-A professional, dense dashboard (React + Vite + TypeScript + Tailwind) that uses **only real
-Smartlead data** to tell you **when each campaign / tag runs out of leads**, so you can upload
-more before it ends. No mock data, no fake fallbacks.
+A professional cold-email agency operations dashboard (React + Vite + TypeScript + Tailwind) that
+uses **only real Smartlead data** to forecast **when each campaign / tag runs out of leads**, so you
+can upload more before it ends. No mock data, no fake fallbacks. Auto-loads on open; map campaigns to
+tags inline and every depletion number recalculates instantly.
 
 ## Quick start
 
@@ -18,12 +19,15 @@ vercel dev       # runs Vite + /api functions together, reads .env
 npm run dev
 ```
 
-Then:
-1. **Fetch accounts / tags** — pulls every in-use email account and builds tag sending volume.
-2. **Fetch campaigns** — discovers campaign IDs + names, then pulls real lead-stat analytics.
+The dashboard **auto-loads** campaigns + tags on open (credentials come from the server-side proxy
+env vars — there are no JWT/API-key inputs in the UI). Use the **Refresh** button to refetch.
 
-The Smartlead JWT lives **server-side** (Vercel env var) and is injected by the proxy — leave
-the JWT field blank. Fill it only to override for quick testing.
+Workflow:
+1. Campaigns load with real lead stats; most start **Unmapped**.
+2. Pick a **tag** in each campaign row (or select rows and **bulk assign**). Mapping saves to
+   `localStorage` and the row's demand / days-left / shared-tag-days / status recalculate instantly.
+3. Sort puts action-needed campaigns first: Critical → Upload soon → Unmapped → No capacity →
+   Healthy → Ended.
 
 ## Secrets & CORS — the serverless proxy
 
@@ -85,17 +89,20 @@ shared_tag_days_left        = ceil(shared_tag_remaining_demand / tag_total_daily
 | Status      | Condition |
 |-------------|-----------|
 | Ended       | `notStarted = 0` |
-| No capacity | no tag mapped **or** tag volume = 0 |
+| Unmapped    | no tag selected |
+| No capacity | mapped tag volume = 0 |
 | Critical    | `shared_tag_days_left ≤ 2` |
 | Upload soon | `shared_tag_days_left ≤ 4` |
 | Healthy     | `shared_tag_days_left > 4` |
 
-Default sort (ending soonest first): Critical → Upload soon → No capacity → Healthy → Ended.
+Default sort (action first): Critical → Upload soon → Unmapped → No capacity → Healthy → Ended.
 
 ### Campaign → Tag mapping
-Analytics doesn't return the sending tag, so map `campaign_id → tag_name` manually.
-The mapper supports campaign search, tag search, an only-unmapped filter, per-row dropdowns,
-and **bulk assign** of selected campaigns to one tag. Mappings persist in `localStorage`.
+Analytics doesn't return the sending tag, so each campaign row has an **inline tag dropdown**.
+Selecting a tag saves `campaign_id → tag_name` to `localStorage` and recalculates the row
+immediately. A bulk bar above the table (search, status filter, select-visible, bulk-assign)
+maps many campaigns at once. The Tag Volume panel shows each pool's mapped-campaign count and
+shared-tag days so you can see which pools deplete first.
 
 ## Error handling
 - Analytics/list/account failures surface the **exact** HTTP status + raw response preview.
@@ -106,23 +113,22 @@ and **bulk assign** of selected campaigns to one tag. Mappings persist in `local
 ## Project structure
 ```
 api/                               Vercel serverless proxy (holds the secret)
-  _lib.ts                          jwt resolution + response piping
   email-accounts.ts
   campaign-list.ts
   campaign-analytics.ts
 src/
-  App.tsx                          state, localStorage, layout
+  App.tsx                          auto-fetch, state, layout
   types.ts                         raw + normalized models
   services/smartlead.ts            fetch, pagination, chunked analytics, normalization
-  utils/campaignCalculations.ts    pure depletion + status + sort logic
-  utils/tagCapacity.ts             tag volume aggregation
+  utils/campaignCalculations.ts    pure demand/days/status/sort + tag forecasts
+  utils/tagCapacity.ts             tag volume aggregation from message_per_day
+  utils/storage.ts                 localStorage (tag map + emails/lead)
   components/
-    ConnectionPanel.tsx
-    SummaryCards.tsx
-    CampaignTable.tsx              dense, sticky-header table + StatusBadge
-    TagVolumeTable.tsx
-    CampaignDetailPanel.tsx
-    CampaignTagMapper.tsx          search + filter + bulk assign
+    Header.tsx                     title, emails/lead, last-updated, Refresh
+    SummaryCards.tsx               KPI cards
+    CampaignForecastTable.tsx      main table: inline tag dropdown + bulk + filters
+    TagVolumePanel.tsx             compact tag pool panel with shared-tag days
+    StatusBadge.tsx
 ```
 
 > All Smartlead calls go through the `/api/*` serverless proxy, so there is no CORS issue and the

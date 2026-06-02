@@ -3,6 +3,7 @@ import type {
   CampaignComputed,
   CampaignStatus,
   CampaignTagMap,
+  TagForecast,
   TagVolume,
 } from '../types'
 
@@ -86,12 +87,16 @@ export function classifyStatus(args: {
   if (notStarted <= 0) {
     return { status: 'ended', reason: 'No leads left to send (notStarted = 0).' }
   }
-  if (!tag || tag.totalDailyVolume <= 0) {
+  if (!tag) {
+    return {
+      status: 'unmapped',
+      reason: 'No tag selected — pick a tag to forecast depletion.',
+    }
+  }
+  if (tag.totalDailyVolume <= 0) {
     return {
       status: 'no_capacity',
-      reason: !tag
-        ? 'No tag mapped — cannot estimate depletion.'
-        : 'Mapped tag has 0 daily sending volume.',
+      reason: 'Mapped tag has 0 daily sending volume.',
     }
   }
   const d = sharedTagDaysLeft
@@ -175,9 +180,10 @@ export function computeAllCampaigns(
 const STATUS_ORDER: Record<CampaignStatus, number> = {
   critical: 0,
   upload_soon: 1,
-  no_capacity: 2,
-  healthy: 3,
-  ended: 4,
+  unmapped: 2,
+  no_capacity: 3,
+  healthy: 4,
+  ended: 5,
 }
 
 export function sortCampaigns(rows: CampaignComputed[]): CampaignComputed[] {
@@ -193,4 +199,38 @@ export function sortCampaigns(rows: CampaignComputed[]): CampaignComputed[] {
     if (db === null) return -1
     return da - db
   })
+}
+
+// ---------------------------------------------------------------------------
+// Tag forecasts: join tag volume with demand of campaigns mapped to it
+// ---------------------------------------------------------------------------
+
+export function buildTagForecasts(
+  tags: TagVolume[],
+  campaigns: Campaign[],
+  tagMap: CampaignTagMap,
+  emailsPerLead: number,
+): TagForecast[] {
+  const demandMap = buildTagDemandMap(campaigns, tagMap, emailsPerLead)
+
+  const countMap = new Map<string, number>()
+  for (const c of campaigns) {
+    const name = resolveTagName(c, tagMap)
+    if (!name) continue
+    const key = name.toLowerCase()
+    countMap.set(key, (countMap.get(key) ?? 0) + 1)
+  }
+
+  return tags
+    .map((t) => {
+      const key = t.tagName.toLowerCase()
+      const sharedTagDemand = demandMap.get(key) ?? 0
+      const mappedCampaigns = countMap.get(key) ?? 0
+      const sharedTagDaysLeft =
+        mappedCampaigns > 0 && t.totalDailyVolume > 0
+          ? Math.ceil(safeDivide(sharedTagDemand, t.totalDailyVolume))
+          : null
+      return { ...t, mappedCampaigns, sharedTagDemand, sharedTagDaysLeft }
+    })
+    .sort((a, b) => b.totalDailyVolume - a.totalDailyVolume)
 }

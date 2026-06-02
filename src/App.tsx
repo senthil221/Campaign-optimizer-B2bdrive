@@ -1,240 +1,188 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { Campaign, CampaignTagMap, EmailAccount, TagVolume } from './types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { Campaign, CampaignTagMap, EmailAccount } from './types'
+import { fetchEmailAccounts, loadCampaigns } from './services/smartlead'
 import {
-  fetchEmailAccounts,
-  loadCampaigns,
-} from './services/smartlead'
-import {
+  buildTagForecasts,
   computeAllCampaigns,
   sortCampaigns,
 } from './utils/campaignCalculations'
 import { buildTagVolumes } from './utils/tagCapacity'
-import ConnectionPanel from './components/ConnectionPanel'
+import {
+  loadEmailsPerLead,
+  loadTagMap,
+  saveEmailsPerLead,
+  saveTagMap,
+} from './utils/storage'
+import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
-import CampaignTable from './components/CampaignTable'
-import TagVolumeTable from './components/TagVolumeTable'
-import CampaignDetailPanel from './components/CampaignDetailPanel'
-import CampaignTagMapper from './components/CampaignTagMapper'
-
-const LS = {
-  jwt: 'sl_jwt',
-  apiKey: 'sl_api_key',
-  emailsPerLead: 'sl_emails_per_lead',
-  tagMap: 'sl_campaign_tag_map',
-}
-
-function loadTagMap(): CampaignTagMap {
-  try {
-    const raw = localStorage.getItem(LS.tagMap)
-    const parsed = raw ? JSON.parse(raw) : {}
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function parseManualIds(input: string): number[] {
-  return Array.from(
-    new Set(
-      input
-        .split(/[\s,]+/)
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => Number.isFinite(n) && n > 0),
-    ),
-  )
-}
+import CampaignForecastTable from './components/CampaignForecastTable'
+import TagVolumePanel from './components/TagVolumePanel'
 
 export default function App() {
-  const [jwt, setJwt] = useState(() => localStorage.getItem(LS.jwt) ?? '')
-  const [apiKey, setApiKey] = useState(
-    () => localStorage.getItem(LS.apiKey) ?? '',
-  )
-  const [emailsPerLead, setEmailsPerLead] = useState(() => {
-    const v = Number(localStorage.getItem(LS.emailsPerLead))
-    return Number.isFinite(v) && v >= 1 ? v : 2
-  })
-  const [manualIds, setManualIds] = useState('')
-
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [tagMap, setTagMap] = useState<CampaignTagMap>(loadTagMap)
+  const [emailsPerLead, setEmailsPerLead] = useState<number>(loadEmailsPerLead)
 
-  const [loadingAccounts, setLoadingAccounts] = useState(false)
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  // Persist settings
-  useEffect(() => void localStorage.setItem(LS.jwt, jwt), [jwt])
-  useEffect(() => void localStorage.setItem(LS.apiKey, apiKey), [apiKey])
-  useEffect(
-    () => void localStorage.setItem(LS.emailsPerLead, String(emailsPerLead)),
-    [emailsPerLead],
-  )
-  useEffect(
-    () => void localStorage.setItem(LS.tagMap, JSON.stringify(tagMap)),
-    [tagMap],
-  )
+  // Persist user settings
+  useEffect(() => saveTagMap(tagMap), [tagMap])
+  useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
 
-  const tags: TagVolume[] = useMemo(
-    () => buildTagVolumes(accounts),
+  // Credentials are injected server-side by the /api proxy → empty strings here.
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setWarnings([])
+    const [accRes, campRes] = await Promise.allSettled([
+      fetchEmailAccounts(''),
+      loadCampaigns('', ''),
+    ])
+
+    const errs: string[] = []
+    if (accRes.status === 'fulfilled') setAccounts(accRes.value)
+    else errs.push(`Accounts: ${accRes.reason?.message ?? accRes.reason}`)
+
+    if (campRes.status === 'fulfilled') {
+      setCampaigns(campRes.value.campaigns)
+      setWarnings(campRes.value.warnings)
+    } else {
+      errs.push(`Campaigns: ${campRes.reason?.message ?? campRes.reason}`)
+    }
+
+    setError(errs.length ? errs.join('  •  ') : null)
+    setLastUpdated(new Date())
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  // ---- Derived data (calculations kept out of the components) ----
+  const realTags = useMemo(
+    () => buildTagVolumes(accounts).filter((t) => t.tagName !== 'Untagged'),
     [accounts],
   )
+
+  const tagOptions = useMemo(() => realTags.map((t) => t.tagName), [realTags])
 
   const computed = useMemo(
     () =>
       sortCampaigns(
-        computeAllCampaigns(campaigns, tags, tagMap, emailsPerLead),
+        computeAllCampaigns(campaigns, realTags, tagMap, emailsPerLead),
       ),
-    [campaigns, tags, tagMap, emailsPerLead],
+    [campaigns, realTags, tagMap, emailsPerLead],
   )
 
-  const selectedRow = useMemo(
-    () => computed.find((r) => r.campaign.campaignId === selectedId) ?? null,
-    [computed, selectedId],
+  const tagForecasts = useMemo(
+    () => buildTagForecasts(realTags, campaigns, tagMap, emailsPerLead),
+    [realTags, campaigns, tagMap, emailsPerLead],
   )
 
-  const summary = useMemo(() => {
+  const kpis = useMemo(() => {
+    let unmapped = 0
     let critical = 0
     let uploadSoon = 0
     for (const r of computed) {
-      if (r.status === 'critical') critical++
+      if (r.status === 'unmapped') unmapped++
+      else if (r.status === 'critical') critical++
       else if (r.status === 'upload_soon') uploadSoon++
     }
-    const totalDailyVolume = tags
-      .filter((t) => t.tagName !== 'Untagged')
-      .reduce((sum, t) => sum + t.totalDailyVolume, 0)
     return {
       totalCampaigns: computed.length,
-      totalTags: tags.filter((t) => t.tagName !== 'Untagged').length,
-      totalDailyVolume,
+      unmapped,
       critical,
       uploadSoon,
+      totalDailyVolume: realTags.reduce((s, t) => s + t.totalDailyVolume, 0),
     }
-  }, [computed, tags])
+  }, [computed, realTags])
 
-  async function handleFetchAccounts() {
-    setError(null)
-    setLoadingAccounts(true)
-    try {
-      const result = await fetchEmailAccounts(jwt)
-      setAccounts(result)
-      if (result.length === 0) {
-        setWarnings((w) => [
-          ...w.filter((x) => !x.startsWith('No email accounts')),
-          'No email accounts returned. Check your JWT or that accounts are in use.',
-        ])
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch accounts.')
-    } finally {
-      setLoadingAccounts(false)
-    }
-  }
-
-  async function handleFetchCampaigns() {
-    setError(null)
-    setWarnings([])
-    setLoadingCampaigns(true)
-    try {
-      const ids = parseManualIds(manualIds)
-      const result = await loadCampaigns(
-        jwt,
-        apiKey,
-        ids.length > 0 ? ids : undefined,
-      )
-      setCampaigns(result.campaigns)
-      setWarnings(result.warnings)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch campaigns.')
-    } finally {
-      setLoadingCampaigns(false)
-    }
-  }
-
-  function handleMapChange(campaignId: number, tagName: string) {
+  // ---- Mapping handlers (instant recalc via state) ----
+  const handleMapChange = useCallback((campaignId: number, tagName: string) => {
     setTagMap((prev) => {
       const next = { ...prev }
       if (tagName) next[String(campaignId)] = tagName
       else delete next[String(campaignId)]
       return next
     })
-  }
+  }, [])
 
-  function handleBulkAssign(campaignIds: number[], tagName: string) {
-    if (!tagName) return
-    setTagMap((prev) => {
-      const next = { ...prev }
-      for (const id of campaignIds) next[String(id)] = tagName
-      return next
-    })
-  }
+  const handleBulkAssign = useCallback(
+    (campaignIds: number[], tagName: string) => {
+      if (!tagName) return
+      setTagMap((prev) => {
+        const next = { ...prev }
+        for (const id of campaignIds) next[String(id)] = tagName
+        return next
+      })
+    },
+    [],
+  )
 
   return (
-    <div className="min-h-full">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-[1600px] px-4 py-3">
-          <h1 className="text-base font-bold text-slate-800">
-            Smartlead Campaign Lead-Count Dashboard
-          </h1>
-          <p className="text-xs text-slate-500">
-            Real campaign lead stats and tag sending volume — know when each
-            campaign runs out of leads.
-          </p>
-        </div>
-      </header>
+    <div className="min-h-full bg-[#f6f8fb]">
+      <Header
+        loading={loading}
+        lastUpdated={lastUpdated}
+        emailsPerLead={emailsPerLead}
+        onEmailsPerLeadChange={setEmailsPerLead}
+        onRefresh={refresh}
+      />
 
-      <main className="mx-auto max-w-[1600px] space-y-4 px-4 py-4">
-        <ConnectionPanel
-          jwt={jwt}
-          apiKey={apiKey}
-          emailsPerLead={emailsPerLead}
-          manualIds={manualIds}
-          loadingAccounts={loadingAccounts}
-          loadingCampaigns={loadingCampaigns}
-          accountCount={accounts.length}
-          campaignCount={campaigns.length}
-          error={error}
-          warnings={warnings}
-          onJwtChange={setJwt}
-          onApiKeyChange={setApiKey}
-          onEmailsPerLeadChange={setEmailsPerLead}
-          onManualIdsChange={setManualIds}
-          onFetchAccounts={handleFetchAccounts}
-          onFetchCampaigns={handleFetchCampaigns}
+      <main className="mx-auto max-w-[1600px] space-y-4 px-6 py-5">
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <span className="font-semibold">Failed to load data.</span>{' '}
+            <span className="break-words">{error}</span>
+          </div>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+            {warnings.map((w, i) => (
+              <div key={i} className="break-words">
+                {w}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <SummaryCards
+          totalCampaigns={kpis.totalCampaigns}
+          unmapped={kpis.unmapped}
+          critical={kpis.critical}
+          uploadSoon={kpis.uploadSoon}
+          totalDailyVolume={kpis.totalDailyVolume}
+          loading={loading}
         />
 
-        {computed.length > 0 && (
-          <SummaryCards
-            totalCampaigns={summary.totalCampaigns}
-            totalTags={summary.totalTags}
-            totalDailyVolume={summary.totalDailyVolume}
-            uploadSoon={summary.uploadSoon}
-            critical={summary.critical}
-          />
+        {kpis.unmapped > 0 && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800">
+            <span className="font-semibold">
+              {kpis.unmapped.toLocaleString()} campaign
+              {kpis.unmapped === 1 ? '' : 's'} need tag mapping.
+            </span>{' '}
+            Assign a tag inline in each row, or select rows and bulk assign.
+          </div>
         )}
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          <div className="space-y-4 xl:col-span-3">
-            <CampaignTable
+          <div className="xl:col-span-3">
+            <CampaignForecastTable
               rows={computed}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-            <TagVolumeTable tags={tags} />
-          </div>
-
-          <div className="space-y-4">
-            <CampaignDetailPanel row={selectedRow} />
-            <CampaignTagMapper
-              campaigns={campaigns}
-              tags={tags}
-              tagMap={tagMap}
-              onChange={handleMapChange}
+              tagOptions={tagOptions}
+              loading={loading}
+              onMapChange={handleMapChange}
               onBulkAssign={handleBulkAssign}
-              onClear={() => setTagMap({})}
             />
+          </div>
+          <div className="xl:col-span-1">
+            <TagVolumePanel tags={tagForecasts} loading={loading} />
           </div>
         </div>
       </main>
