@@ -1,50 +1,68 @@
 import type {
   Campaign,
   EmailAccount,
-  RawCampaign,
+  LoadCampaignsResult,
+  RawCampaignAnalytics,
+  RawCampaignListItem,
   RawEmailAccount,
 } from '../types'
-import { num } from '../utils/calculations'
+import { num } from '../utils/campaignCalculations'
 
 const EMAIL_ACCOUNTS_URL =
   'https://server.smartlead.ai/api/email-account/get-total-email-accounts'
+const CAMPAIGN_LIST_URL = 'https://server.smartlead.ai/api/email-campaigns'
 const CAMPAIGN_ANALYTICS_URL =
   'https://server.smartlead.ai/api/email-campaigns/get-campaign-analytics'
 
 const PAGE_LIMIT = 100
-const REQUEST_DELAY_MS = 350
-const MAX_PAGES = 100 // hard safety cap (10k accounts)
+const ANALYTICS_CHUNK = 50
+const REQUEST_DELAY_MS = 300
+const MAX_PAGES = 200 // safety cap (20k accounts)
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function authHeaders(jwt: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${jwt}`,
+    'Content-Type': 'application/json',
+  }
+}
+
+function preview(value: unknown, max = 600): string {
+  let s: string
+  try {
+    s = typeof value === 'string' ? value : JSON.stringify(value)
+  } catch {
+    s = String(value)
+  }
+  return s.length > max ? `${s.slice(0, max)}… (truncated)` : s
+}
+
 /**
- * Smartlead responses come back in a few shapes depending on endpoint/version.
- * Dig the array out of whichever envelope is present, never throwing.
+ * Dig an array out of whichever envelope Smartlead returns, without throwing.
+ * Tries: top-level array, top-level keys, data array, data.<keys>, data.results.
  */
-function extractArray(json: unknown, keys: string[]): unknown[] {
+function extractArray(json: unknown, keys: string[]): unknown[] | null {
   if (Array.isArray(json)) return json
-  if (!json || typeof json !== 'object') return []
+  if (!json || typeof json !== 'object') return null
 
   const obj = json as Record<string, unknown>
-
-  // direct keys at top level: json.email_accounts, json.campaigns, json.data
   for (const key of keys) {
     if (Array.isArray(obj[key])) return obj[key] as unknown[]
   }
 
-  // nested under data: json.data.email_accounts, json.data (array)
   const data = obj.data
   if (Array.isArray(data)) return data
   if (data && typeof data === 'object') {
     const d = data as Record<string, unknown>
+    if (Array.isArray(d.results)) return d.results as unknown[]
     for (const key of keys) {
       if (Array.isArray(d[key])) return d[key] as unknown[]
     }
   }
-
-  return []
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -80,17 +98,23 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
   }
 }
 
-export function normalizeCampaign(raw: RawCampaign): Campaign {
+export function normalizeCampaign(
+  raw: RawCampaignAnalytics,
+  nameInfo: { name: string; status: string } | undefined,
+): Campaign {
   const stats = raw?.campaign_lead_stats ?? {}
+  const id = num(raw?.id, 0)
   return {
-    campaignId: num(raw?.campaign_id ?? raw?.id, 0),
-    campaignName: String(raw?.campaign_name ?? raw?.name ?? 'Untitled campaign'),
+    campaignId: id,
+    campaignName: nameInfo?.name ?? `Campaign ${id}`,
+    nameMissing: !nameInfo?.name,
     sentCount: num(raw?.sent_count, 0),
     replyCount: num(raw?.reply_count, 0),
     oooReplyCount: num(raw?.ooo_reply_count, 0),
     bounceCount: num(raw?.bounce_count, 0),
     totalCount: num(raw?.total_count, 0),
-    status: String(raw?.status ?? 'ACTIVE'),
+    draftedCount: num(raw?.drafted_count, 0),
+    status: String(nameInfo?.status ?? raw?.status ?? ''),
     leadStats: {
       total: num(stats?.total, 0),
       completed: num(stats?.completed, 0),
@@ -99,6 +123,7 @@ export function normalizeCampaign(raw: RawCampaign): Campaign {
       paused: num(stats?.paused, 0),
       blocked: num(stats?.blocked, 0),
       stopped: num(stats?.stopped, 0),
+      senderBounced: num(stats?.senderBounced, 0),
     },
   }
 }
@@ -106,13 +131,13 @@ export function normalizeCampaign(raw: RawCampaign): Campaign {
 function dedupeAccounts(accounts: EmailAccount[]): EmailAccount[] {
   const seen = new Map<number, EmailAccount>()
   for (const acc of accounts) {
-    if (!seen.has(acc.id)) seen.set(acc.id, acc)
+    if (acc.id && !seen.has(acc.id)) seen.set(acc.id, acc)
   }
   return Array.from(seen.values())
 }
 
 // ---------------------------------------------------------------------------
-// Live fetchers
+// Email accounts / tags
 // ---------------------------------------------------------------------------
 
 /**
@@ -128,221 +153,223 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
     const offset = page * PAGE_LIMIT
     const url = `${EMAIL_ACCOUNTS_URL}?offset=${offset}&limit=${PAGE_LIMIT}&isInUse=true`
 
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        'Content-Type': 'application/json',
-      },
-    })
+    const res = await fetch(url, { method: 'GET', headers: authHeaders(jwt) })
+    const text = await res.text()
 
     if (!res.ok) {
       throw new Error(
-        `Email accounts request failed (${res.status} ${res.statusText}) at offset ${offset}.`,
+        `Email accounts request failed (${res.status} ${res.statusText}) at offset ${offset}. Response: ${preview(text)}`,
       )
     }
 
-    const json = await res.json().catch(() => null)
+    let json: unknown = null
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Email accounts response was not valid JSON at offset ${offset}. Response: ${preview(text)}`,
+      )
+    }
+
     const rows = extractArray(json, ['email_accounts'])
-    if (rows.length === 0) break
+    if (!rows || rows.length === 0) break
 
     for (const row of rows) {
       all.push(normalizeEmailAccount(row as RawEmailAccount))
     }
 
-    // last (partial) page → done
-    if (rows.length < PAGE_LIMIT) break
-
+    if (rows.length < PAGE_LIMIT) break // last partial page
     await delay(REQUEST_DELAY_MS)
   }
 
   return dedupeAccounts(all)
 }
 
+// ---------------------------------------------------------------------------
+// Campaign list (ids + names)
+// ---------------------------------------------------------------------------
+
 /**
- * Fetch campaign analytics. Supports JWT (Bearer) and/or API key.
- * The request body is intentionally permissive — Smartlead returns all
- * campaigns when no specific filter is provided.
+ * Fetch the campaign list to obtain campaign IDs + names + status.
+ * Best-effort: returns [] on a recognizable-but-empty shape; throws only on
+ * a transport/HTTP error so the caller can decide whether to warn or fail.
  */
-export async function fetchCampaigns(
+export async function fetchCampaignList(
   jwt: string,
-  apiKey?: string,
-): Promise<Campaign[]> {
-  if (!jwt && !apiKey) {
-    throw new Error('Provide a JWT or an API key to fetch campaigns.')
-  }
+): Promise<RawCampaignListItem[]> {
+  if (!jwt) throw new Error('A JWT is required to fetch the campaign list.')
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  if (jwt) headers.Authorization = `Bearer ${jwt}`
-
-  let url = CAMPAIGN_ANALYTICS_URL
-  if (apiKey) url += `?api_key=${encodeURIComponent(apiKey)}`
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({}),
+  const res = await fetch(CAMPAIGN_LIST_URL, {
+    method: 'GET',
+    headers: authHeaders(jwt),
   })
+  const text = await res.text()
 
   if (!res.ok) {
     throw new Error(
-      `Campaign analytics request failed (${res.status} ${res.statusText}).`,
+      `Campaign list request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
     )
   }
 
-  const json = await res.json().catch(() => null)
-  const rows = extractArray(json, ['campaigns', 'analytics', 'email_campaigns'])
-  return rows.map((row) => normalizeCampaign(row as RawCampaign))
-}
-
-// ---------------------------------------------------------------------------
-// Mock data — lets the app run with zero credentials
-// ---------------------------------------------------------------------------
-
-export function getMockAccounts(): EmailAccount[] {
-  const tags: Record<string, { id: number; name: string }> = {
-    saas: { id: 1, name: 'SaaS Outreach' },
-    agency: { id: 2, name: 'Agency' },
-    ecom: { id: 3, name: 'Ecommerce' },
+  let json: unknown = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(
+      `Campaign list response was not valid JSON. Response: ${preview(text)}`,
+    )
   }
 
-  const accounts: EmailAccount[] = []
-  let id = 1000
+  const rows = extractArray(json, ['campaigns', 'email_campaigns', 'results'])
+  if (!rows) return []
 
-  const make = (
-    tag: { id: number; name: string },
-    perDay: number,
-    sent: number,
-    rep: number,
-  ): EmailAccount => ({
-    id: id++,
-    fromEmail: `sender${id}@${tag.name.toLowerCase().replace(/\s+/g, '')}.com`,
-    messagePerDay: perDay,
-    dailySentCount: sent,
-    warmupStatus: 'ACTIVE',
-    warmupReputation: rep,
-    tagIds: [tag.id],
-    tagNames: [tag.name],
+  return rows.map((r) => {
+    const o = (r ?? {}) as Record<string, unknown>
+    return {
+      id: num(o.id, 0),
+      name: o.name != null ? String(o.name) : null,
+      status: o.status != null ? String(o.status) : null,
+    }
   })
-
-  // SaaS Outreach — 6 accounts
-  for (let i = 0; i < 6; i++) accounts.push(make(tags.saas, 40, 30 + i, 95 - i))
-  // Agency — 4 accounts
-  for (let i = 0; i < 4; i++) accounts.push(make(tags.agency, 50, 20 + i, 90 - i))
-  // Ecommerce — 3 accounts
-  for (let i = 0; i < 3; i++) accounts.push(make(tags.ecom, 30, 25 + i, 88 - i))
-
-  return accounts
 }
 
-export function getMockCampaigns(): Campaign[] {
-  return [
-    {
-      campaignId: 5001,
-      campaignName: 'SaaS Q3 Cold Outreach',
-      sentCount: 4200,
-      replyCount: 180,
-      oooReplyCount: 22,
-      bounceCount: 60,
-      totalCount: 5000,
-      status: 'ACTIVE',
-      leadStats: {
-        total: 5000,
-        completed: 2100,
-        inprogress: 400,
-        notStarted: 2500,
-        paused: 0,
-        blocked: 0,
-        stopped: 0,
-      },
-    },
-    {
-      campaignId: 5002,
-      campaignName: 'SaaS Founders List',
-      sentCount: 1800,
-      replyCount: 95,
-      oooReplyCount: 10,
-      bounceCount: 25,
-      totalCount: 2000,
-      status: 'ACTIVE',
-      leadStats: {
-        total: 2000,
-        completed: 1500,
-        inprogress: 200,
-        notStarted: 300,
-        paused: 0,
-        blocked: 0,
-        stopped: 0,
-      },
-    },
-    {
-      campaignId: 5003,
-      campaignName: 'Agency Lead Gen',
-      sentCount: 3000,
-      replyCount: 140,
-      oooReplyCount: 15,
-      bounceCount: 40,
-      totalCount: 3500,
-      status: 'ACTIVE',
-      leadStats: {
-        total: 3500,
-        completed: 2900,
-        inprogress: 150,
-        notStarted: 450,
-        paused: 0,
-        blocked: 0,
-        stopped: 0,
-      },
-    },
-    {
-      campaignId: 5004,
-      campaignName: 'Ecommerce Holiday Push',
-      sentCount: 900,
-      replyCount: 30,
-      oooReplyCount: 5,
-      bounceCount: 12,
-      totalCount: 1000,
-      status: 'ACTIVE',
-      leadStats: {
-        total: 1000,
-        completed: 1000,
-        inprogress: 0,
-        notStarted: 0,
-        paused: 0,
-        blocked: 0,
-        stopped: 0,
-      },
-    },
-    {
-      campaignId: 5005,
-      campaignName: 'Unmapped Test Campaign',
-      sentCount: 200,
-      replyCount: 8,
-      oooReplyCount: 1,
-      bounceCount: 3,
-      totalCount: 1200,
-      status: 'ACTIVE',
-      leadStats: {
-        total: 1200,
-        completed: 300,
-        inprogress: 100,
-        notStarted: 800,
-        paused: 0,
-        blocked: 0,
-        stopped: 0,
-      },
-    },
-  ]
+// ---------------------------------------------------------------------------
+// Campaign analytics (chunked)
+// ---------------------------------------------------------------------------
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
 }
 
-export function getMockTagMap(): Record<string, string> {
-  return {
-    '5001': 'SaaS Outreach',
-    '5002': 'SaaS Outreach',
-    '5003': 'Agency',
-    '5004': 'Ecommerce',
-    // 5005 intentionally left unmapped to demo the "no capacity" alert
+/**
+ * POST campaign IDs to get-campaign-analytics in batches of ANALYTICS_CHUNK.
+ * campaign_ids MUST be a curly-brace wrapped string: "{id1,id2,id3}".
+ * Throws with the exact server error / raw response preview on failure.
+ */
+export async function fetchCampaignAnalytics(
+  jwt: string,
+  ids: number[],
+): Promise<RawCampaignAnalytics[]> {
+  if (!jwt) throw new Error('A JWT is required to fetch campaign analytics.')
+  if (ids.length === 0) {
+    throw new Error('No campaign IDs available to fetch analytics for.')
   }
+
+  const merged = new Map<number, RawCampaignAnalytics>()
+  const batches = chunk(ids, ANALYTICS_CHUNK)
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i]
+    const campaignIds = `{${batch.join(',')}}`
+
+    const res = await fetch(CAMPAIGN_ANALYTICS_URL, {
+      method: 'POST',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({ campaign_ids: campaignIds }),
+    })
+    const text = await res.text()
+
+    if (!res.ok) {
+      throw new Error(
+        `Campaign analytics request failed (${res.status} ${res.statusText}) on batch ${i + 1}/${batches.length}. Response: ${preview(text)}`,
+      )
+    }
+
+    let json: unknown = null
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Campaign analytics returned non-JSON on batch ${i + 1}. Response: ${preview(text)}`,
+      )
+    }
+
+    const results = extractArray(json, ['results'])
+    if (!results) {
+      throw new Error(
+        `Campaign analytics response is missing the "results" array on batch ${i + 1}. Raw response: ${preview(json)}`,
+      )
+    }
+
+    for (const r of results) {
+      const item = r as RawCampaignAnalytics
+      const id = num(item?.id, 0)
+      if (id) merged.set(id, item)
+    }
+
+    if (i < batches.length - 1) await delay(REQUEST_DELAY_MS)
+  }
+
+  return Array.from(merged.values())
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator: list -> analytics -> joined campaigns
+// ---------------------------------------------------------------------------
+
+/**
+ * Load real campaigns end-to-end.
+ * @param manualIds optional user-supplied IDs that override the list endpoint.
+ */
+export async function loadCampaigns(
+  jwt: string,
+  manualIds?: number[],
+): Promise<LoadCampaignsResult> {
+  const warnings: string[] = []
+
+  // 1) Resolve names/status from the campaign list (best-effort).
+  const nameMap = new Map<number, { name: string; status: string }>()
+  let listIds: number[] = []
+  try {
+    const list = await fetchCampaignList(jwt)
+    for (const item of list) {
+      const id = num(item.id, 0)
+      if (!id) continue
+      listIds.push(id)
+      if (item.name) {
+        nameMap.set(id, { name: item.name, status: item.status ?? '' })
+      }
+    }
+    if (list.length === 0) {
+      warnings.push(
+        'Campaign list endpoint returned no campaigns. Campaign names may be missing.',
+      )
+    }
+  } catch (e) {
+    warnings.push(
+      `Could not fetch campaign names: ${e instanceof Error ? e.message : String(e)}. Showing campaign IDs only.`,
+    )
+  }
+
+  // 2) Decide which IDs to fetch analytics for.
+  const ids =
+    manualIds && manualIds.length > 0
+      ? manualIds
+      : Array.from(new Set(listIds))
+
+  if (ids.length === 0) {
+    throw new Error(
+      'No campaign IDs available. The campaign list endpoint returned nothing — paste campaign IDs manually to continue.',
+    )
+  }
+
+  // 3) Analytics (chunked) + join with names.
+  const analytics = await fetchCampaignAnalytics(jwt, ids)
+  if (analytics.length === 0) {
+    throw new Error('Campaign analytics returned 0 results for the given IDs.')
+  }
+
+  const campaigns = analytics.map((raw) =>
+    normalizeCampaign(raw, nameMap.get(num(raw?.id, 0))),
+  )
+
+  if (campaigns.some((c) => c.nameMissing)) {
+    warnings.push(
+      'Some campaign names could not be resolved — those rows show "Campaign <id>".',
+    )
+  }
+
+  return { campaigns, warnings }
 }
