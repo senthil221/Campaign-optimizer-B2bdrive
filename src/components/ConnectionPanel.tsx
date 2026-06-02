@@ -46,7 +46,7 @@ export default function ConnectionPanel(props: Props) {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
         <div className="md:col-span-7">
           <label className="mb-1 block text-xs font-medium text-slate-500">
-            JWT (Bearer token)
+            JWT (optional — overrides server)
           </label>
           <input
             type="password"
@@ -87,22 +87,22 @@ export default function ConnectionPanel(props: Props) {
       </div>
 
       <p className="mt-2 text-[11px] text-slate-400">
-        Campaign IDs are optional — leave blank to auto-discover them from your
-        Smartlead campaign list. Provide them to fetch analytics for specific
-        campaigns only.
+        The JWT is read from the server (Vercel <code>SMARTLEAD_JWT</code> env
+        var) — leave the field blank to use it. Fill it only to override for
+        testing. Campaign IDs are optional; leave blank to auto-discover them.
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           onClick={onFetchAccounts}
-          disabled={loadingAccounts || !jwt}
+          disabled={loadingAccounts}
           className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loadingAccounts ? 'Fetching accounts…' : 'Fetch accounts / tags'}
         </button>
         <button
           onClick={onFetchCampaigns}
-          disabled={loadingCampaigns || !jwt}
+          disabled={loadingCampaigns}
           className="rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loadingCampaigns ? 'Fetching campaigns…' : 'Fetch campaigns'}

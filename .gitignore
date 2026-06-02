@@ -5,6 +5,12 @@ dist-ssr
 .vite
 *.tsbuildinfo
 
+# env / vercel
+.env
+.env.*
+!.env.example
+.vercel
+
 # editor
 .vscode/*
 !.vscode/extensions.json

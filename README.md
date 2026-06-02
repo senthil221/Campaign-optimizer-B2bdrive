@@ -8,13 +8,45 @@ more before it ends. No mock data, no fake fallbacks.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
+
+# Local dev WITH the serverless proxy (recommended):
+npm i -g vercel
+vercel dev       # runs Vite + /api functions together, reads .env
+
+# Or UI only (no proxy — /api calls will 404 unless you pass a JWT override):
+npm run dev
 ```
 
-Enter your **JWT (Bearer token)**, then:
+Then:
 1. **Fetch accounts / tags** — pulls every in-use email account and builds tag sending volume.
 2. **Fetch campaigns** — discovers campaign IDs + names, then pulls real lead-stat analytics.
+
+The Smartlead JWT lives **server-side** (Vercel env var) and is injected by the proxy — leave
+the JWT field blank. Fill it only to override for quick testing.
+
+## Secrets & CORS — the serverless proxy
+
+The browser never calls `server.smartlead.ai` directly (that would leak the JWT and hit CORS).
+Instead it calls same-origin functions under `/api/*` which add the secret and forward the request:
+
+| Browser → | Serverless function → Smartlead |
+|-----------|----------------------------------|
+| `GET /api/email-accounts?offset=` | `/api/email-account/get-total-email-accounts` |
+| `GET /api/campaign-list`          | `/api/email-campaigns` |
+| `POST /api/campaign-analytics`    | `/api/email-campaigns/get-campaign-analytics` |
+
+### Deploy on Vercel
+1. Import the repo into Vercel (framework auto-detected as **Vite**, functions auto-detected in `/api`).
+2. **Project → Settings → Environment Variables** add:
+   - `SMARTLEAD_JWT` = your Smartlead JWT  *(required)*
+   - `SMARTLEAD_API_KEY` = *(optional)*
+3. Deploy. Open the app and click **Fetch accounts / tags** / **Fetch campaigns** — no token in the browser.
+
+> ⚠️ Do **not** prefix these with `VITE_`. `VITE_` env vars are inlined into the public JS bundle
+> and would expose your JWT. Server-side vars (no prefix) stay on the server.
+
+For local dev, copy `.env.example` → `.env`, fill in `SMARTLEAD_JWT`, and run `vercel dev`.
 
 ## Data flow
 
@@ -73,6 +105,11 @@ and **bulk assign** of selected campaigns to one tag. Mappings persist in `local
 
 ## Project structure
 ```
+api/                               Vercel serverless proxy (holds the secret)
+  _lib.ts                          jwt resolution + response piping
+  email-accounts.ts
+  campaign-list.ts
+  campaign-analytics.ts
 src/
   App.tsx                          state, localStorage, layout
   types.ts                         raw + normalized models
@@ -88,5 +125,5 @@ src/
     CampaignTagMapper.tsx          search + filter + bulk assign
 ```
 
-> **CORS note:** Calling Smartlead directly from the browser may be blocked in production.
-> If so, proxy these endpoints through a small backend and point `services/smartlead.ts` at it.
+> All Smartlead calls go through the `/api/*` serverless proxy, so there is no CORS issue and the
+> JWT is never present in the browser bundle.

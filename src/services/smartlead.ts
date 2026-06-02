@@ -8,11 +8,12 @@ import type {
 } from '../types'
 import { num } from '../utils/campaignCalculations'
 
-const EMAIL_ACCOUNTS_URL =
-  'https://server.smartlead.ai/api/email-account/get-total-email-accounts'
-const CAMPAIGN_LIST_URL = 'https://server.smartlead.ai/api/email-campaigns'
-const CAMPAIGN_ANALYTICS_URL =
-  'https://server.smartlead.ai/api/email-campaigns/get-campaign-analytics'
+// Same-origin serverless proxy (see /api/*). The proxy injects the Smartlead
+// JWT from a server-side env var, so no secret is exposed in the browser and
+// there is no cross-origin (CORS) call from the client.
+const EMAIL_ACCOUNTS_URL = '/api/email-accounts'
+const CAMPAIGN_LIST_URL = '/api/campaign-list'
+const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -23,11 +24,12 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Optional JWT override → forwarded to the proxy as a header. When empty, the
+// proxy falls back to its server-side SMARTLEAD_JWT env var.
 function authHeaders(jwt: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${jwt}`,
-    'Content-Type': 'application/json',
-  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (jwt) headers['x-smartlead-jwt'] = jwt
+  return headers
 }
 
 function preview(value: unknown, max = 600): string {
@@ -145,13 +147,11 @@ function dedupeAccounts(accounts: EmailAccount[]): EmailAccount[] {
  * Stops when a page returns no accounts (or the safety cap is reached).
  */
 export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
-  if (!jwt) throw new Error('A JWT is required to fetch email accounts.')
-
   const all: EmailAccount[] = []
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const offset = page * PAGE_LIMIT
-    const url = `${EMAIL_ACCOUNTS_URL}?offset=${offset}&limit=${PAGE_LIMIT}&isInUse=true`
+    const url = `${EMAIL_ACCOUNTS_URL}?offset=${offset}`
 
     const res = await fetch(url, { method: 'GET', headers: authHeaders(jwt) })
     const text = await res.text()
@@ -197,8 +197,6 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
 export async function fetchCampaignList(
   jwt: string,
 ): Promise<RawCampaignListItem[]> {
-  if (!jwt) throw new Error('A JWT is required to fetch the campaign list.')
-
   const res = await fetch(CAMPAIGN_LIST_URL, {
     method: 'GET',
     headers: authHeaders(jwt),
@@ -252,7 +250,6 @@ export async function fetchCampaignAnalytics(
   jwt: string,
   ids: number[],
 ): Promise<RawCampaignAnalytics[]> {
-  if (!jwt) throw new Error('A JWT is required to fetch campaign analytics.')
   if (ids.length === 0) {
     throw new Error('No campaign IDs available to fetch analytics for.')
   }
