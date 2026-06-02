@@ -1,9 +1,9 @@
 import type {
   Campaign,
+  CampaignListEntry,
   EmailAccount,
   LoadCampaignsResult,
   RawCampaignAnalytics,
-  RawCampaignListItem,
   RawEmailAccount,
 } from '../types'
 import { num } from '../utils/campaignCalculations'
@@ -101,16 +101,64 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
   }
 }
 
+/**
+ * Pull tag names off a raw campaign-list row, tolerating the shapes Smartlead
+ * may use: arrays of strings, {name}, {tag_name}, {label}, or {tag:{name}},
+ * under any of several likely field names.
+ */
+export function extractTagNames(o: Record<string, unknown>): string[] {
+  const out: string[] = []
+
+  const pushOne = (v: unknown) => {
+    if (!v) return
+    if (typeof v === 'string') {
+      if (v.trim()) out.push(v.trim())
+      return
+    }
+    if (typeof v === 'object') {
+      const obj = v as Record<string, unknown>
+      const nested =
+        (typeof obj.name === 'string' && obj.name) ||
+        (typeof obj.tag_name === 'string' && obj.tag_name) ||
+        (typeof obj.label === 'string' && obj.label) ||
+        (typeof obj.title === 'string' && obj.title) ||
+        (obj.tag &&
+          typeof (obj.tag as Record<string, unknown>).name === 'string' &&
+          ((obj.tag as Record<string, unknown>).name as string)) ||
+        ''
+      if (nested) out.push(String(nested).trim())
+    }
+  }
+
+  const CANDIDATE_KEYS = [
+    'tags',
+    'campaign_tags',
+    'campaignTags',
+    'labels',
+    'tag',
+    'client_tags',
+    'campaign_label',
+  ]
+  for (const key of CANDIDATE_KEYS) {
+    const val = o[key]
+    if (Array.isArray(val)) val.forEach(pushOne)
+    else if (val) pushOne(val)
+  }
+
+  return Array.from(new Set(out.filter(Boolean)))
+}
+
 export function normalizeCampaign(
   raw: RawCampaignAnalytics,
-  nameInfo: { name: string; status: string } | undefined,
+  nameInfo: { name: string; status: string; tags: string[] } | undefined,
 ): Campaign {
   const stats = raw?.campaign_lead_stats ?? {}
   const id = num(raw?.id, 0)
   return {
     campaignId: id,
-    campaignName: nameInfo?.name ?? `Campaign ${id}`,
+    campaignName: nameInfo?.name || `Campaign ${id}`,
     nameMissing: !nameInfo?.name,
+    apiTags: nameInfo?.tags ?? [],
     sentCount: num(raw?.sent_count, 0),
     replyCount: num(raw?.reply_count, 0),
     oooReplyCount: num(raw?.ooo_reply_count, 0),
@@ -198,7 +246,7 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
 export async function fetchCampaignList(
   jwt: string,
   apiKey = '',
-): Promise<RawCampaignListItem[]> {
+): Promise<{ entries: CampaignListEntry[]; rawSample: unknown }> {
   const res = await fetch(CAMPAIGN_LIST_URL, {
     method: 'GET',
     headers: authHeaders(jwt, apiKey),
@@ -221,16 +269,19 @@ export async function fetchCampaignList(
   }
 
   const rows = extractArray(json, ['campaigns', 'email_campaigns', 'results'])
-  if (!rows) return []
+  if (!rows) return { entries: [], rawSample: null }
 
-  return rows.map((r) => {
+  const entries = rows.map((r) => {
     const o = (r ?? {}) as Record<string, unknown>
     return {
       id: num(o.id, 0),
       name: o.name != null ? String(o.name) : null,
       status: o.status != null ? String(o.status) : null,
+      tags: extractTagNames(o),
     }
   })
+
+  return { entries, rawSample: rows[0] ?? null }
 }
 
 // ---------------------------------------------------------------------------
@@ -319,20 +370,27 @@ export async function loadCampaigns(
 ): Promise<LoadCampaignsResult> {
   const warnings: string[] = []
 
-  // 1) Resolve names/status from the campaign list (best-effort).
-  const nameMap = new Map<number, { name: string; status: string }>()
+  // 1) Resolve names/status/tags from the campaign list (best-effort).
+  const nameMap = new Map<
+    number,
+    { name: string; status: string; tags: string[] }
+  >()
   const listIds: number[] = []
+  let rawSample: unknown = null
   try {
-    const list = await fetchCampaignList(jwt, apiKey)
-    for (const item of list) {
+    const { entries, rawSample: sample } = await fetchCampaignList(jwt, apiKey)
+    rawSample = sample
+    for (const item of entries) {
       const id = num(item.id, 0)
       if (!id) continue
       listIds.push(id)
-      if (item.name) {
-        nameMap.set(id, { name: item.name, status: item.status ?? '' })
-      }
+      nameMap.set(id, {
+        name: item.name ?? '',
+        status: item.status ?? '',
+        tags: item.tags,
+      })
     }
-    if (list.length === 0) {
+    if (entries.length === 0) {
       warnings.push(
         'Campaign list endpoint returned no campaigns. Campaign names may be missing.',
       )
@@ -371,5 +429,12 @@ export async function loadCampaigns(
     )
   }
 
-  return { campaigns, warnings }
+  const taggedCount = campaigns.filter((c) => c.apiTags.length > 0).length
+  if (taggedCount === 0) {
+    warnings.push(
+      'No campaign tags were found in the campaign-list response. Auto-mapping is off — map tags manually, and check the debug drawer to find the tag field name.',
+    )
+  }
+
+  return { campaigns, warnings, taggedCount, rawSample }
 }

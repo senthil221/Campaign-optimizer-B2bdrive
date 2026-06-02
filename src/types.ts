@@ -96,6 +96,8 @@ export interface Campaign {
   campaignId: number
   campaignName: string
   nameMissing: boolean
+  /** Tag names Smartlead returns on the campaign itself (the colored pills). */
+  apiTags: string[]
   sentCount: number
   replyCount: number
   oooReplyCount: number
@@ -104,6 +106,14 @@ export interface Campaign {
   draftedCount: number
   status: string
   leadStats: CampaignLeadStats
+}
+
+/** Normalized campaign-list row (ids + names + status + tags). */
+export interface CampaignListEntry {
+  id: number
+  name: string | null
+  status: string | null
+  tags: string[]
 }
 
 export type CampaignStatus =
@@ -140,4 +150,8 @@ export type CampaignTagMap = Record<string, string>
 export interface LoadCampaignsResult {
   campaigns: Campaign[]
   warnings: string[]
+  /** How many campaigns had at least one tag returned by Smartlead. */
+  taggedCount: number
+  /** Raw first campaign-list row, for the debug drawer (tag field discovery). */
+  rawSample: unknown
 }

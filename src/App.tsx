@@ -28,6 +28,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [rawSample, setRawSample] = useState<unknown>(null)
 
   // Persist user settings
   useEffect(() => saveTagMap(tagMap), [tagMap])
@@ -50,6 +51,7 @@ export default function App() {
     if (campRes.status === 'fulfilled') {
       setCampaigns(campRes.value.campaigns)
       setWarnings(campRes.value.warnings)
+      setRawSample(campRes.value.rawSample)
     } else {
       errs.push(`Campaigns: ${campRes.reason?.message ?? campRes.reason}`)
     }
@@ -101,6 +103,14 @@ export default function App() {
       totalDailyVolume: realTags.reduce((s, t) => s + t.totalDailyVolume, 0),
     }
   }, [computed, realTags])
+
+  const autoMappedCount = useMemo(
+    () =>
+      computed.filter(
+        (r) => r.tagName && !tagMap[String(r.campaign.campaignId)],
+      ).length,
+    [computed, tagMap],
+  )
 
   // ---- Mapping handlers (instant recalc via state) ----
   const handleMapChange = useCallback((campaignId: number, tagName: string) => {
@@ -161,6 +171,16 @@ export default function App() {
           loading={loading}
         />
 
+        {autoMappedCount > 0 && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+            <span className="font-semibold">
+              {autoMappedCount.toLocaleString()} campaign
+              {autoMappedCount === 1 ? '' : 's'} auto-mapped
+            </span>{' '}
+            from their Smartlead tags. Override any row with the inline dropdown.
+          </div>
+        )}
+
         {kpis.unmapped > 0 && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800">
             <span className="font-semibold">
@@ -185,6 +205,17 @@ export default function App() {
             <TagVolumePanel tags={tagForecasts} loading={loading} />
           </div>
         </div>
+
+        {rawSample != null && (
+          <details className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
+            <summary className="cursor-pointer select-none font-medium text-slate-600">
+              Debug · raw campaign sample (use this to find Smartlead's tag field)
+            </summary>
+            <pre className="mt-2 max-h-72 overflow-auto rounded bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
+              {JSON.stringify(rawSample, null, 2)}
+            </pre>
+          </details>
+        )}
       </main>
     </div>
   )

@@ -38,13 +38,29 @@ export function remainingEmailDemand(
   return Math.max(0, campaign.leadStats.notStarted) * emailsPerLead
 }
 
-/** Resolve the tag name assigned to a campaign via the manual mapping. */
+/**
+ * Resolve the tag name for a campaign.
+ * Precedence: manual override (localStorage) → Smartlead's own campaign tag
+ * (preferring one that matches an existing sending pool) → none.
+ */
 export function resolveTagName(
   campaign: Campaign,
   tagMap: CampaignTagMap,
+  availableTags: string[] = [],
 ): string | null {
-  const mapped = tagMap[String(campaign.campaignId)]
-  return mapped && mapped.trim() ? mapped.trim() : null
+  const manual = tagMap[String(campaign.campaignId)]
+  if (manual && manual.trim()) return manual.trim()
+
+  const apiTags = campaign.apiTags ?? []
+  if (apiTags.length > 0) {
+    if (availableTags.length > 0) {
+      const set = new Set(availableTags.map((t) => t.toLowerCase()))
+      const match = apiTags.find((t) => set.has(t.toLowerCase()))
+      return match ?? apiTags[0]
+    }
+    return apiTags[0]
+  }
+  return null
 }
 
 function findTag(tagName: string | null, tags: TagVolume[]): TagVolume | null {
@@ -62,10 +78,11 @@ export function buildTagDemandMap(
   campaigns: Campaign[],
   tagMap: CampaignTagMap,
   emailsPerLead: number,
+  availableTags: string[] = [],
 ): Map<string, number> {
   const demand = new Map<string, number>()
   for (const campaign of campaigns) {
-    const tagName = resolveTagName(campaign, tagMap)
+    const tagName = resolveTagName(campaign, tagMap, availableTags)
     if (!tagName) continue
     const key = tagName.toLowerCase()
     demand.set(key, (demand.get(key) ?? 0) + remainingEmailDemand(campaign, emailsPerLead))
@@ -125,8 +142,9 @@ export function computeCampaign(
   tagMap: CampaignTagMap,
   emailsPerLead: number,
   tagDemandMap: Map<string, number>,
+  availableTags: string[] = [],
 ): CampaignComputed {
-  const tagName = resolveTagName(campaign, tagMap)
+  const tagName = resolveTagName(campaign, tagMap, availableTags)
   const tag = findTag(tagName, tags)
   const demand = remainingEmailDemand(campaign, emailsPerLead)
 
@@ -167,9 +185,15 @@ export function computeAllCampaigns(
   tagMap: CampaignTagMap,
   emailsPerLead: number,
 ): CampaignComputed[] {
-  const tagDemandMap = buildTagDemandMap(campaigns, tagMap, emailsPerLead)
+  const availableTags = tags.map((t) => t.tagName)
+  const tagDemandMap = buildTagDemandMap(
+    campaigns,
+    tagMap,
+    emailsPerLead,
+    availableTags,
+  )
   return campaigns.map((c) =>
-    computeCampaign(c, tags, tagMap, emailsPerLead, tagDemandMap),
+    computeCampaign(c, tags, tagMap, emailsPerLead, tagDemandMap, availableTags),
   )
 }
 
@@ -211,11 +235,17 @@ export function buildTagForecasts(
   tagMap: CampaignTagMap,
   emailsPerLead: number,
 ): TagForecast[] {
-  const demandMap = buildTagDemandMap(campaigns, tagMap, emailsPerLead)
+  const availableTags = tags.map((t) => t.tagName)
+  const demandMap = buildTagDemandMap(
+    campaigns,
+    tagMap,
+    emailsPerLead,
+    availableTags,
+  )
 
   const countMap = new Map<string, number>()
   for (const c of campaigns) {
-    const name = resolveTagName(c, tagMap)
+    const name = resolveTagName(c, tagMap, availableTags)
     if (!name) continue
     const key = name.toLowerCase()
     countMap.set(key, (countMap.get(key) ?? 0) + 1)
