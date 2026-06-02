@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
-// POST /api/campaign-analytics  body: { campaign_ids: "{id1,id2,...}" }
+// POST /api/campaign-analytics  body: { args: { campaign_ids: "{id1,id2,...}" } }
 // Proxies one analytics batch to Smartlead.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -19,10 +19,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>
-  if (!body || typeof body !== 'object' || !('campaign_ids' in body)) {
+  if (!body || typeof body !== 'object' || !('args' in body)) {
     return res.status(400).json({
       error:
-        'Missing campaign_ids. Body must be { "campaign_ids": "{id1,id2,...}" }.',
+        'Missing args. Body must be { "args": { "campaign_ids": "{id1,id2,...}" } }.',
     })
   }
 

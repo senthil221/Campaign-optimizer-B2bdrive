@@ -63,7 +63,7 @@ Per tag: `account_count`, `total_daily_volume = Σ message_per_day`,
    if it fails you still get IDs and a warning that names are missing).
 2. **Analytics** → `POST /api/email-campaigns/get-campaign-analytics`.
    - This endpoint **requires** a curly-brace ID string, e.g.
-     `{ "campaign_ids": "{3434132,3433660,3432770}" }`. Empty body does **not** work.
+     `{ "args": { "campaign_ids": "{3434132,3433660,3432770}" } }`. Empty body does **not** work.
    - IDs are chunked **50 per request**, results merged by `id`, then joined with names.
    - You can paste specific **Campaign IDs** in the connection panel to override discovery.
 

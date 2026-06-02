@@ -266,7 +266,7 @@ export async function fetchCampaignAnalytics(
     const res = await fetch(CAMPAIGN_ANALYTICS_URL, {
       method: 'POST',
       headers: authHeaders(jwt),
-      body: JSON.stringify({ campaign_ids: campaignIds }),
+      body: JSON.stringify({ args: { campaign_ids: campaignIds } }),
     })
     const text = await res.text()
 
