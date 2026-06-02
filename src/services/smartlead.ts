@@ -24,11 +24,12 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// Optional JWT override → forwarded to the proxy as a header. When empty, the
-// proxy falls back to its server-side SMARTLEAD_JWT env var.
-function authHeaders(jwt: string): Record<string, string> {
+// Optional JWT / API key overrides → forwarded to the proxy as headers. When
+// empty, the proxy falls back to its server-side SMARTLEAD_JWT / SMARTLEAD_API_KEY.
+function authHeaders(jwt: string, apiKey = ''): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (jwt) headers['x-smartlead-jwt'] = jwt
+  if (apiKey) headers['x-smartlead-api-key'] = apiKey
   return headers
 }
 
@@ -196,10 +197,11 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
  */
 export async function fetchCampaignList(
   jwt: string,
+  apiKey = '',
 ): Promise<RawCampaignListItem[]> {
   const res = await fetch(CAMPAIGN_LIST_URL, {
     method: 'GET',
-    headers: authHeaders(jwt),
+    headers: authHeaders(jwt, apiKey),
   })
   const text = await res.text()
 
@@ -312,15 +314,16 @@ export async function fetchCampaignAnalytics(
  */
 export async function loadCampaigns(
   jwt: string,
+  apiKey: string,
   manualIds?: number[],
 ): Promise<LoadCampaignsResult> {
   const warnings: string[] = []
 
   // 1) Resolve names/status from the campaign list (best-effort).
   const nameMap = new Map<number, { name: string; status: string }>()
-  let listIds: number[] = []
+  const listIds: number[] = []
   try {
-    const list = await fetchCampaignList(jwt)
+    const list = await fetchCampaignList(jwt, apiKey)
     for (const item of list) {
       const id = num(item.id, 0)
       if (!id) continue

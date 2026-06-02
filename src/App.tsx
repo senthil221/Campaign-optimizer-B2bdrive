@@ -18,6 +18,7 @@ import CampaignTagMapper from './components/CampaignTagMapper'
 
 const LS = {
   jwt: 'sl_jwt',
+  apiKey: 'sl_api_key',
   emailsPerLead: 'sl_emails_per_lead',
   tagMap: 'sl_campaign_tag_map',
 }
@@ -45,6 +46,9 @@ function parseManualIds(input: string): number[] {
 
 export default function App() {
   const [jwt, setJwt] = useState(() => localStorage.getItem(LS.jwt) ?? '')
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem(LS.apiKey) ?? '',
+  )
   const [emailsPerLead, setEmailsPerLead] = useState(() => {
     const v = Number(localStorage.getItem(LS.emailsPerLead))
     return Number.isFinite(v) && v >= 1 ? v : 2
@@ -63,6 +67,7 @@ export default function App() {
 
   // Persist settings
   useEffect(() => void localStorage.setItem(LS.jwt, jwt), [jwt])
+  useEffect(() => void localStorage.setItem(LS.apiKey, apiKey), [apiKey])
   useEffect(
     () => void localStorage.setItem(LS.emailsPerLead, String(emailsPerLead)),
     [emailsPerLead],
@@ -134,7 +139,11 @@ export default function App() {
     setLoadingCampaigns(true)
     try {
       const ids = parseManualIds(manualIds)
-      const result = await loadCampaigns(jwt, ids.length > 0 ? ids : undefined)
+      const result = await loadCampaigns(
+        jwt,
+        apiKey,
+        ids.length > 0 ? ids : undefined,
+      )
       setCampaigns(result.campaigns)
       setWarnings(result.warnings)
     } catch (e) {
@@ -179,6 +188,7 @@ export default function App() {
       <main className="mx-auto max-w-[1600px] space-y-4 px-4 py-4">
         <ConnectionPanel
           jwt={jwt}
+          apiKey={apiKey}
           emailsPerLead={emailsPerLead}
           manualIds={manualIds}
           loadingAccounts={loadingAccounts}
@@ -188,6 +198,7 @@ export default function App() {
           error={error}
           warnings={warnings}
           onJwtChange={setJwt}
+          onApiKeyChange={setApiKey}
           onEmailsPerLeadChange={setEmailsPerLead}
           onManualIdsChange={setManualIds}
           onFetchAccounts={handleFetchAccounts}

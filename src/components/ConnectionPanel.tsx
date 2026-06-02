@@ -1,5 +1,6 @@
 interface Props {
   jwt: string
+  apiKey: string
   emailsPerLead: number
   manualIds: string
   loadingAccounts: boolean
@@ -9,6 +10,7 @@ interface Props {
   error: string | null
   warnings: string[]
   onJwtChange: (v: string) => void
+  onApiKeyChange: (v: string) => void
   onEmailsPerLeadChange: (v: number) => void
   onManualIdsChange: (v: string) => void
   onFetchAccounts: () => void
@@ -18,6 +20,7 @@ interface Props {
 export default function ConnectionPanel(props: Props) {
   const {
     jwt,
+    apiKey,
     emailsPerLead,
     manualIds,
     loadingAccounts,
@@ -27,6 +30,7 @@ export default function ConnectionPanel(props: Props) {
     error,
     warnings,
     onJwtChange,
+    onApiKeyChange,
     onEmailsPerLeadChange,
     onManualIdsChange,
     onFetchAccounts,
@@ -44,7 +48,7 @@ export default function ConnectionPanel(props: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-        <div className="md:col-span-7">
+        <div className="md:col-span-5">
           <label className="mb-1 block text-xs font-medium text-slate-500">
             JWT (optional — overrides server)
           </label>
@@ -58,6 +62,19 @@ export default function ConnectionPanel(props: Props) {
         </div>
 
         <div className="md:col-span-3">
+          <label className="mb-1 block text-xs font-medium text-slate-500">
+            API key (optional)
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => onApiKeyChange(e.target.value)}
+            placeholder="Smartlead API key"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div className="md:col-span-2">
           <label className="mb-1 block text-xs font-medium text-slate-500">
             Campaign IDs (optional)
           </label>
@@ -87,9 +104,11 @@ export default function ConnectionPanel(props: Props) {
       </div>
 
       <p className="mt-2 text-[11px] text-slate-400">
-        The JWT is read from the server (Vercel <code>SMARTLEAD_JWT</code> env
-        var) — leave the field blank to use it. Fill it only to override for
-        testing. Campaign IDs are optional; leave blank to auto-discover them.
+        JWT &amp; API key are read from the server (Vercel{' '}
+        <code>SMARTLEAD_JWT</code> / <code>SMARTLEAD_API_KEY</code>) — leave
+        blank to use those; fill them only to override for testing. An API key
+        gives the most reliable campaign names. Campaign IDs are optional; leave
+        blank to auto-discover, or paste IDs to fetch specific campaigns.
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
