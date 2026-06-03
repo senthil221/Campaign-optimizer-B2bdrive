@@ -2,9 +2,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
-// GET /api/campaign-list
-// Prefers the documented public endpoint (api key) for reliable id+name+status;
-// falls back to the JWT internal endpoint when only a JWT is available.
+// GET /api/campaign-list?offset=0
+// Returns one page of campaigns (id + name + status + campaign_tags_mappings).
+// Prefers the JWT internal endpoint (which includes campaign tags); falls back
+// to the api-key public endpoint (no tags) only when no JWT is available.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const jwt =
     process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
@@ -13,14 +14,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     (req.headers['x-smartlead-api-key'] as string) ||
     ''
 
+  const offset = Number(req.query.offset ?? 0) || 0
+  const limit = 100
+
   let url: string
   const headers: Record<string, string> = {}
 
-  if (apiKey) {
-    url = `${SMARTLEAD_BASE}/api/v1/campaigns?api_key=${encodeURIComponent(apiKey)}`
-  } else if (jwt) {
-    url = `${SMARTLEAD_BASE}/api/email-campaigns`
+  if (jwt) {
+    url = `${SMARTLEAD_BASE}/api/email-campaigns/get-all-campaigns?offset=${offset}&limit=${limit}&statusNot=ARCHIVED&parentCampaignId=null`
     headers.Authorization = `Bearer ${jwt}`
+  } else if (apiKey) {
+    url = `${SMARTLEAD_BASE}/api/v1/campaigns?api_key=${encodeURIComponent(apiKey)}`
   } else {
     return res.status(400).json({
       error:

@@ -37,7 +37,7 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | Browser → | Serverless function → Smartlead |
 |-----------|----------------------------------|
 | `GET /api/email-accounts?offset=` | `/api/email-account/get-total-email-accounts` |
-| `GET /api/campaign-list`          | `/api/email-campaigns` |
+| `GET /api/campaign-list?offset=`  | `/api/email-campaigns/get-all-campaigns` (incl. campaign tags) |
 | `POST /api/campaign-analytics`    | `/api/email-campaigns/get-campaign-analytics` |
 
 ### Deploy on Vercel

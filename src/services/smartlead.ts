@@ -131,6 +131,7 @@ export function extractTagNames(o: Record<string, unknown>): string[] {
   }
 
   const CANDIDATE_KEYS = [
+    'campaign_tags_mappings', // Smartlead get-all-campaigns → [{ tag: { name } }]
     'tags',
     'campaign_tags',
     'campaignTags',
@@ -247,41 +248,57 @@ export async function fetchCampaignList(
   jwt: string,
   apiKey = '',
 ): Promise<{ entries: CampaignListEntry[]; rawSample: unknown }> {
-  const res = await fetch(CAMPAIGN_LIST_URL, {
-    method: 'GET',
-    headers: authHeaders(jwt, apiKey),
-  })
-  const text = await res.text()
+  const byId = new Map<number, CampaignListEntry>()
+  let rawSample: unknown = null
 
-  if (!res.ok) {
-    throw new Error(
-      `Campaign list request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-    )
-  }
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const offset = page * PAGE_LIMIT
+    const res = await fetch(`${CAMPAIGN_LIST_URL}?offset=${offset}`, {
+      method: 'GET',
+      headers: authHeaders(jwt, apiKey),
+    })
+    const text = await res.text()
 
-  let json: unknown = null
-  try {
-    json = JSON.parse(text)
-  } catch {
-    throw new Error(
-      `Campaign list response was not valid JSON. Response: ${preview(text)}`,
-    )
-  }
-
-  const rows = extractArray(json, ['campaigns', 'email_campaigns', 'results'])
-  if (!rows) return { entries: [], rawSample: null }
-
-  const entries = rows.map((r) => {
-    const o = (r ?? {}) as Record<string, unknown>
-    return {
-      id: num(o.id, 0),
-      name: o.name != null ? String(o.name) : null,
-      status: o.status != null ? String(o.status) : null,
-      tags: extractTagNames(o),
+    if (!res.ok) {
+      throw new Error(
+        `Campaign list request failed (${res.status} ${res.statusText}) at offset ${offset}. Response: ${preview(text)}`,
+      )
     }
-  })
 
-  return { entries, rawSample: rows[0] ?? null }
+    let json: unknown = null
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Campaign list response was not valid JSON at offset ${offset}. Response: ${preview(text)}`,
+      )
+    }
+
+    const rows = extractArray(json, ['campaigns', 'email_campaigns', 'results'])
+    if (!rows || rows.length === 0) break
+
+    if (rawSample === null) rawSample = rows[0]
+
+    let added = 0
+    for (const r of rows) {
+      const o = (r ?? {}) as Record<string, unknown>
+      const id = num(o.id, 0)
+      if (!id || byId.has(id)) continue
+      byId.set(id, {
+        id,
+        name: o.name != null ? String(o.name) : null,
+        status: o.status != null ? String(o.status) : null,
+        tags: extractTagNames(o),
+      })
+      added++
+    }
+
+    // Stop on a short page, or if the endpoint ignored offset (no new rows).
+    if (rows.length < PAGE_LIMIT || added === 0) break
+    await delay(REQUEST_DELAY_MS)
+  }
+
+  return { entries: Array.from(byId.values()), rawSample }
 }
 
 // ---------------------------------------------------------------------------
