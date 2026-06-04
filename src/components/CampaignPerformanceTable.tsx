@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { CampaignPerformance } from '../types'
 
 interface Props {
@@ -19,7 +19,8 @@ const inputCls =
 
 const UNMAPPED = '__unmapped__'
 
-// Inline editor for max new leads/day. Commits on Enter or blur.
+// Inline editor for max new leads/day. Shows the value formatted; focusing
+// turns it into a plain digit field. Commits on Enter/blur, cancels on Esc.
 function MaxLeadsCell({
   id,
   value,
@@ -29,25 +30,27 @@ function MaxLeadsCell({
   value: number | null
   onUpdate: (id: number, value: number) => Promise<void>
 }) {
-  const [draft, setDraft] = useState(value == null ? '' : String(value))
+  const [draft, setDraft] = useState('')
+  const [focused, setFocused] = useState(false)
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
-  useEffect(() => {
-    setDraft(value == null ? '' : String(value))
-  }, [value])
+  const shown = focused
+    ? draft
+    : value == null
+      ? ''
+      : value.toLocaleString()
 
   const commit = async () => {
-    const n = Number(draft)
-    if (draft.trim() === '' || !Number.isFinite(n) || n < 0) {
-      setDraft(value == null ? '' : String(value))
-      return
-    }
-    if (value != null && n === value) return
+    setFocused(false)
+    const clean = draft.replace(/[^\d]/g, '')
+    if (clean === '') return
+    const n = Number(clean)
+    if (!Number.isFinite(n) || (value != null && n === value)) return
     setState('saving')
     try {
-      await onUpdate(id, Math.round(n))
+      await onUpdate(id, n)
       setState('saved')
-      setTimeout(() => setState('idle'), 1400)
+      setTimeout(() => setState('idle'), 1500)
     } catch {
       setState('error')
     }
@@ -55,32 +58,45 @@ function MaxLeadsCell({
 
   return (
     <div className="flex items-center justify-end gap-1.5">
-      <input
-        type="number"
-        min={0}
-        value={draft}
-        placeholder="—"
-        onChange={(e) => {
-          setDraft(e.target.value)
-          if (state !== 'idle') setState('idle')
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-        }}
-        onBlur={commit}
-        className={`tnum h-7 w-[68px] rounded-md border bg-base px-2 text-right text-xs text-ink outline-none transition placeholder:text-faint focus:border-lime/50 focus:ring-1 focus:ring-lime/25 ${
+      <div
+        className={`flex h-8 w-[104px] items-center rounded-lg border bg-base pl-2.5 pr-1 transition focus-within:border-lime/50 focus-within:ring-1 focus-within:ring-lime/25 ${
           state === 'error' ? 'border-critical/60' : 'border-line'
         }`}
-      />
-      <span className="w-3 text-center text-xs leading-none">
-        {state === 'saving' && <span className="inline-block animate-spin text-faint">↻</span>}
-        {state === 'saved' && <span className="text-positive">✓</span>}
-        {state === 'error' && (
-          <span className="text-critical" title="Save failed — try again">
-            !
-          </span>
-        )}
-      </span>
+      >
+        <input
+          type="text"
+          inputMode="numeric"
+          value={shown}
+          placeholder="—"
+          aria-label="Max new leads per day"
+          onFocus={() => {
+            setFocused(true)
+            setDraft(value == null ? '' : String(value))
+            if (state !== 'idle') setState('idle')
+          }}
+          onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ''))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            if (e.key === 'Escape') {
+              setDraft(value == null ? '' : String(value))
+              ;(e.target as HTMLInputElement).blur()
+            }
+          }}
+          onBlur={commit}
+          className="tnum w-full bg-transparent text-right text-[13px] font-medium text-ink outline-none placeholder:text-faint"
+        />
+        <span className="w-4 shrink-0 text-center text-xs leading-none">
+          {state === 'saving' && (
+            <span className="inline-block animate-spin text-faint">↻</span>
+          )}
+          {state === 'saved' && <span className="text-positive">✓</span>}
+          {state === 'error' && (
+            <span className="text-critical" title="Save failed — click to retry">
+              !
+            </span>
+          )}
+        </span>
+      </div>
     </div>
   )
 }
