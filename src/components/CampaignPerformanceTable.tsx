@@ -44,8 +44,8 @@ const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
 const ratio = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
-const TH = 'px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
-const TD = 'px-4 py-2.5 whitespace-nowrap align-middle tnum tabular-nums'
+const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
+const TD = 'px-4 py-1.5 whitespace-nowrap align-middle tnum tabular-nums'
 
 const UNMAPPED = '__unmapped__'
 
@@ -367,7 +367,7 @@ export default function CampaignPerformanceTable({
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-2 border-b border-line px-5 py-2.5">
+      <div className="flex items-center gap-2 border-b border-line px-5 py-2">
         {/* Search */}
         <div className="relative flex items-center">
           <svg className="absolute left-2.5 text-faint/50" width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -453,7 +453,7 @@ export default function CampaignPerformanceTable({
                     isOpen ? 'bg-white/[0.03]' : ''
                   }`}
                 >
-                  <td className="max-w-[340px] px-4 py-2.5 pl-3 align-middle">
+                  <td className="max-w-[340px] px-4 py-1.5 pl-3 align-middle">
                     <div className="flex items-center gap-2.5">
                       <span title={leadBreakdownTitle(c.leadStats)} className="shrink-0">
                         <ProgressRing percent={r.progressPercent} />

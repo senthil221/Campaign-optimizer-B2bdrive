@@ -2,8 +2,8 @@
 // Sized up to 40px default for better in-table legibility.
 export function ProgressRing({
   percent,
-  size = 40,
-  stroke = 3.5,
+  size = 34,
+  stroke = 3,
 }: {
   percent: number
   size?: number
@@ -69,7 +69,7 @@ export function ProgressRing({
         fill="#F4F4F5"
         fontWeight="700"
         style={{
-          fontSize: size * 0.27,
+          fontSize: size * 0.29,
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum" 1',
         }}
