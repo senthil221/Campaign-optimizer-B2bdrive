@@ -76,7 +76,7 @@ function extractArray(json: unknown, keys: string[]): unknown[] | null {
 // Normalization (never crashes on missing fields)
 // ---------------------------------------------------------------------------
 
-export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
+export function normalizeEmailAccount(raw: RawEmailAccount, isInUse = true): EmailAccount {
   const tagIds: number[] = []
   const tagNames: string[] = []
 
@@ -105,8 +105,7 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
     connected,
-    // If the field is absent, assume in-use (safe default for unfiltered responses).
-    isInUse: raw?.is_in_use !== false,
+    isInUse,
     tagIds,
     tagNames,
   }
@@ -206,22 +205,26 @@ function dedupeAccounts(accounts: EmailAccount[]): EmailAccount[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch ALL in-use email accounts, paginating with offset += 100.
- * Stops when a page returns no accounts (or the safety cap is reached).
+ * Paginate one isInUse bucket. The flag is set explicitly on each account so
+ * we know for certain whether it's active (in a campaign) or idle.
  */
-export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
+async function fetchEmailAccountsByUsage(
+  jwt: string,
+  inUse: boolean,
+): Promise<EmailAccount[]> {
   const all: EmailAccount[] = []
+  const label = inUse ? 'active' : 'idle'
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const offset = page * PAGE_LIMIT
-    const url = `${EMAIL_ACCOUNTS_URL}?offset=${offset}`
+    const url = `${EMAIL_ACCOUNTS_URL}?offset=${offset}&isInUse=${inUse}`
 
     const res = await fetch(url, { method: 'GET', headers: authHeaders(jwt) })
     const text = await res.text()
 
     if (!res.ok) {
       throw new Error(
-        `Email accounts request failed (${res.status} ${res.statusText}) at offset ${offset}. Response: ${preview(text)}`,
+        `Email accounts (${label}) request failed (${res.status} ${res.statusText}) at offset ${offset}. Response: ${preview(text)}`,
       )
     }
 
@@ -230,7 +233,7 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
       json = JSON.parse(text)
     } catch {
       throw new Error(
-        `Email accounts response was not valid JSON at offset ${offset}. Response: ${preview(text)}`,
+        `Email accounts (${label}) response was not valid JSON at offset ${offset}. Response: ${preview(text)}`,
       )
     }
 
@@ -238,14 +241,26 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
     if (!rows || rows.length === 0) break
 
     for (const row of rows) {
-      all.push(normalizeEmailAccount(row as RawEmailAccount))
+      all.push(normalizeEmailAccount(row as RawEmailAccount, inUse))
     }
 
-    if (rows.length < PAGE_LIMIT) break // last partial page
+    if (rows.length < PAGE_LIMIT) break
     await delay(REQUEST_DELAY_MS)
   }
 
-  return dedupeAccounts(all)
+  return all
+}
+
+/**
+ * Fetch ALL email accounts (active + idle) in parallel, tagging each with
+ * isInUse so idle inboxes can be surfaced in the Tag Overview.
+ */
+export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
+  const [active, idle] = await Promise.all([
+    fetchEmailAccountsByUsage(jwt, true),
+    fetchEmailAccountsByUsage(jwt, false),
+  ])
+  return dedupeAccounts([...active, ...idle])
 }
 
 // ---------------------------------------------------------------------------

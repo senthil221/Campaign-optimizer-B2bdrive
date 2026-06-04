@@ -15,8 +15,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const offset = Number(req.query.offset ?? 0) || 0
-  // Fetch all accounts (no isInUse filter) so idle inboxes are visible too.
-  const url = `${SMARTLEAD_BASE}/api/email-account/get-total-email-accounts?offset=${offset}&limit=100`
+  // Pass isInUse through so the service layer can call us twice (true + false).
+  const isInUse = req.query.isInUse
+  const inUseParam = isInUse !== undefined ? `&isInUse=${isInUse}` : ''
+  const url = `${SMARTLEAD_BASE}/api/email-account/get-total-email-accounts?offset=${offset}&limit=100${inUseParam}`
 
   try {
     const upstream = await fetch(url, {
