@@ -3,7 +3,7 @@ import type { CampaignPerformance, SequenceStat } from '../types'
 import type { CampaignStatusAction } from '../services/smartlead'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
-import { ProgressBar, leadBreakdownTitle } from './ProgressBar'
+import { leadBreakdownTitle } from './ProgressBar'
 import { ProgressRing } from './ProgressRing'
 
 interface SeqState {
@@ -354,17 +354,6 @@ export default function CampaignPerformanceTable({
     })
   }, [rows, search, tagFilter])
 
-  // Overall lead completion across ALL campaigns (not the current filter).
-  const overall = useMemo(() => {
-    let total = 0
-    let completed = 0
-    for (const r of rows) {
-      total += r.campaign.leadStats.total
-      completed += r.campaign.leadStats.completed
-    }
-    return { total, completed, percent: total > 0 ? (completed / total) * 100 : 0 }
-  }, [rows])
-
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
@@ -374,25 +363,9 @@ export default function CampaignPerformanceTable({
             Campaign Performance
           </h2>
           <span className="text-[12px] font-medium text-faint">
-            Rates are ÷ Sent · Lead Rate = Interested ÷ Sent
+            Rates are ÷ Sent · Lead Rate = Positive Replies ÷ Total Replies
           </span>
         </div>
-
-        {/* Overall completion across every campaign */}
-        {!loading && overall.total > 0 && (
-          <div
-            className="flex items-center gap-3"
-            title={`${fmt(overall.completed)} of ${fmt(overall.total)} leads completed`}
-          >
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
-              Overall
-            </span>
-            <ProgressBar percent={overall.percent} className="w-32" />
-            <span className="tnum font-display text-[15px] font-semibold text-ink">
-              {overall.percent.toFixed(1)}%
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Controls */}

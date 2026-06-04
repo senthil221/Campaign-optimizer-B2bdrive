@@ -321,6 +321,8 @@ export function buildCampaignPerformance(
     .map((c) => {
       const interested = c.leadStats.interested
       const positiveRate = rate(interested, c.sentCount)
+      // Lead Rate = positive replies ÷ total replies × 100
+      const leadRate = rate(interested, c.replyCount)
       const tagName = resolveTagName(c, tagMap, availableTags)
       const tagVolume =
         tagName && tagVolumeByName
@@ -339,7 +341,7 @@ export function buildCampaignPerformance(
         oooRate: rate(c.oooReplyCount, c.sentCount),
         interested,
         positiveRate,
-        leadRate: positiveRate,
+        leadRate,
         bounced: c.bounceCount,
         bounceRate: rate(c.bounceCount, c.sentCount),
         maxLeadsPerDay: c.maxLeadsPerDay,
