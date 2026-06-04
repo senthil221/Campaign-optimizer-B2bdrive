@@ -2,7 +2,10 @@ import type { CampaignTagMap } from '../types'
 
 const TAG_MAP_KEY = 'sl_campaign_tag_map'
 const EMAILS_PER_LEAD_KEY = 'sl_emails_per_lead'
-const VISIBLE_COLUMNS_KEY = 'sl_visible_columns'
+
+// One key per table whose columns can be shown/hidden.
+export const PERF_COLUMNS_KEY = 'sl_visible_columns'
+export const TAG_COLUMNS_KEY = 'sl_tag_columns'
 
 export const DEFAULT_EMAILS_PER_LEAD = 2
 
@@ -37,10 +40,10 @@ export function saveEmailsPerLead(value: number): void {
   }
 }
 
-/** Persisted show/hide state for the performance table columns (id -> visible). */
-export function loadVisibleColumns(): Record<string, boolean> {
+/** Persisted show/hide state for a table's columns (id -> visible). */
+export function loadVisibleColumns(key: string): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(VISIBLE_COLUMNS_KEY)
+    const raw = localStorage.getItem(key)
     const parsed = raw ? JSON.parse(raw) : {}
     return parsed && typeof parsed === 'object'
       ? (parsed as Record<string, boolean>)
@@ -50,9 +53,12 @@ export function loadVisibleColumns(): Record<string, boolean> {
   }
 }
 
-export function saveVisibleColumns(value: Record<string, boolean>): void {
+export function saveVisibleColumns(
+  key: string,
+  value: Record<string, boolean>,
+): void {
   try {
-    localStorage.setItem(VISIBLE_COLUMNS_KEY, JSON.stringify(value))
+    localStorage.setItem(key, JSON.stringify(value))
   } catch {
     /* ignore */
   }

@@ -1,8 +1,10 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import type { CampaignPerformance, SequenceStat } from '../types'
 import type { CampaignStatusAction } from '../services/smartlead'
 import CampaignStatusBadge from './CampaignStatusBadge'
+import ColumnsMenu from './ColumnsMenu'
 import { ProgressBar, leadBreakdownTitle } from './ProgressBar'
+import { ProgressRing } from './ProgressRing'
 
 interface SeqState {
   loading: boolean
@@ -15,7 +17,6 @@ interface SeqState {
 export const PERF_COLUMNS = [
   { id: 'tag', label: 'Tag' },
   { id: 'status', label: 'Status' },
-  { id: 'progress', label: 'Progress' },
   { id: 'sent', label: 'Sent' },
   { id: 'replied', label: 'Replied' },
   { id: 'ooo', label: 'OOO' },
@@ -222,95 +223,6 @@ function ActionCell({
   )
 }
 
-// Dropdown of checkboxes to show/hide columns. Closes on outside click / Esc.
-function ColumnsMenu({
-  visibleCols,
-  onColumnsChange,
-}: {
-  visibleCols: Record<string, boolean>
-  onColumnsChange: (next: Record<string, boolean>) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const show = (id: string) => visibleCols[id] !== false
-  const hiddenCount = PERF_COLUMNS.filter((c) => !show(c.id)).length
-
-  const toggle = (id: string) =>
-    onColumnsChange({ ...visibleCols, [id]: !show(id) })
-  const showAll = () =>
-    onColumnsChange(
-      Object.fromEntries(PERF_COLUMNS.map((c) => [c.id, true])),
-    )
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${
-          open || hiddenCount > 0
-            ? 'border-lime/40 bg-lime/[0.06] text-ink'
-            : 'border-line bg-base text-muted hover:text-ink'
-        }`}
-      >
-        <span className="text-xs">▥</span>
-        Columns
-        {hiddenCount > 0 && (
-          <span className="tnum rounded-full bg-lime/15 px-1.5 text-[10px] font-semibold text-lime">
-            {hiddenCount} hidden
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-panel-2 shadow-panel">
-          <div className="flex items-center justify-between border-b border-line px-3 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
-              Show columns
-            </span>
-            <button
-              onClick={showAll}
-              className="text-[11px] font-semibold text-lime hover:underline"
-            >
-              Reset
-            </button>
-          </div>
-          <div className="max-h-72 overflow-auto py-1">
-            {PERF_COLUMNS.map((c) => (
-              <label
-                key={c.id}
-                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-ink transition hover:bg-white/[0.03]"
-              >
-                <input
-                  type="checkbox"
-                  checked={show(c.id)}
-                  onChange={() => toggle(c.id)}
-                  className="h-3.5 w-3.5 accent-lime"
-                />
-                {c.label}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // Per-variant analytics shown when a campaign row is expanded.
 function SequenceBreakdown({ state }: { state: SeqState | undefined }) {
   if (!state || state.loading) {
@@ -504,7 +416,11 @@ export default function CampaignPerformanceTable({
           ))}
           <option value={UNMAPPED}>— Untagged —</option>
         </select>
-        <ColumnsMenu visibleCols={visibleCols} onColumnsChange={onColumnsChange} />
+        <ColumnsMenu
+          columns={PERF_COLUMNS}
+          visibleCols={visibleCols}
+          onColumnsChange={onColumnsChange}
+        />
         <span className="ml-auto tnum text-xs font-medium text-faint">
           {filtered.length} of {rows.length}
         </span>
@@ -518,7 +434,6 @@ export default function CampaignPerformanceTable({
               <th className={`${TH} pl-5 text-left`}>Campaign</th>
               {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
               {show('status') && <th className={`${TH} text-left`}>Status</th>}
-              {show('progress') && <th className={`${TH} text-left`}>Progress</th>}
               {show('sent') && <th className={`${TH} text-right`}>Sent</th>}
               {show('replied') && <th className={`${TH} text-right`}>Replied</th>}
               {show('ooo') && <th className={`${TH} text-right`}>OOO</th>}
@@ -562,33 +477,48 @@ export default function CampaignPerformanceTable({
                     isOpen ? 'bg-white/[0.03]' : ''
                   }`}
                 >
-                  <td className="max-w-[320px] px-4 py-2 pl-3 align-middle">
-                    <button
-                      onClick={() => toggleExpand(c.campaignId)}
-                      className="flex w-full items-center gap-2 text-left"
-                      title="Show variant performance"
-                    >
-                      <span
-                        className={`shrink-0 text-faint transition-transform ${isOpen ? 'rotate-90 text-lime' : ''}`}
-                      >
-                        ›
+                  <td className="max-w-[340px] px-4 py-2 pl-3 align-middle">
+                    <div className="flex items-center gap-2.5">
+                      <span title={leadBreakdownTitle(c.leadStats)} className="shrink-0">
+                        <ProgressRing percent={r.progressPercent} />
                       </span>
-                      <span
-                        className="truncate font-medium text-ink"
-                        title={`${c.campaignName} · #${c.campaignId}`}
+                      <button
+                        onClick={() => toggleExpand(c.campaignId)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        title="Show variant performance"
                       >
-                        {c.campaignName}
-                      </span>
-                    </button>
+                        <span
+                          className={`shrink-0 text-faint transition-transform ${isOpen ? 'rotate-90 text-lime' : ''}`}
+                        >
+                          ›
+                        </span>
+                        <span
+                          className="truncate font-medium text-ink"
+                          title={`${c.campaignName} · #${c.campaignId}`}
+                        >
+                          {c.campaignName}
+                        </span>
+                      </button>
+                    </div>
                   </td>
 
                   {show('tag') && (
                     <td className="px-4 py-2 align-middle">
                       {r.tagName ? (
-                        <span className="inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-md border border-line bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-muted">
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime/70" />
-                          <span className="truncate">{r.tagName}</span>
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex max-w-[150px] items-center gap-1.5 truncate rounded-md border border-line bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-muted">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime/70" />
+                            <span className="truncate">{r.tagName}</span>
+                          </span>
+                          {r.tagVolume != null && r.tagVolume > 0 && (
+                            <span
+                              className="tnum whitespace-nowrap text-[11px] font-medium text-faint"
+                              title={`Daily sending volume of the "${r.tagName}" pool`}
+                            >
+                              {fmt(r.tagVolume)}/day
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs font-medium text-faint">Untagged</span>
                       )}
@@ -598,20 +528,6 @@ export default function CampaignPerformanceTable({
                   {show('status') && (
                     <td className="px-4 py-2 align-middle">
                       <CampaignStatusBadge status={r.status} />
-                    </td>
-                  )}
-
-                  {show('progress') && (
-                    <td className="px-4 py-2 align-middle">
-                      <div
-                        className="flex items-center gap-2"
-                        title={leadBreakdownTitle(c.leadStats)}
-                      >
-                        <ProgressBar percent={r.progressPercent} className="w-20" />
-                        <span className="tnum w-12 text-right text-xs text-muted">
-                          {r.progressPercent}%
-                        </span>
-                      </div>
                     </td>
                   )}
 

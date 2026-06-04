@@ -312,6 +312,7 @@ export function buildCampaignPerformance(
   campaigns: Campaign[],
   tagMap: CampaignTagMap,
   availableTags: string[] = [],
+  tagVolumeByName?: Map<string, number>,
 ): CampaignPerformance[] {
   const rate = (n: number, d: number) =>
     Math.round(safeDivide(n, d) * 100 * 100) / 100
@@ -320,9 +321,15 @@ export function buildCampaignPerformance(
     .map((c) => {
       const interested = c.leadStats.interested
       const positiveRate = rate(interested, c.sentCount)
+      const tagName = resolveTagName(c, tagMap, availableTags)
+      const tagVolume =
+        tagName && tagVolumeByName
+          ? tagVolumeByName.get(tagName.toLowerCase()) ?? null
+          : null
       return {
         campaign: c,
-        tagName: resolveTagName(c, tagMap, availableTags),
+        tagName,
+        tagVolume,
         status: c.status,
         progressPercent: progressPercent(c),
         sent: c.sentCount,

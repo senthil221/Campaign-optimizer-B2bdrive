@@ -163,6 +163,8 @@ export interface TagForecast extends TagVolume {
 export interface CampaignPerformance {
   campaign: Campaign
   tagName: string | null
+  /** Total daily sending volume of the mapped tag's pool. null when no tag. */
+  tagVolume: number | null
   /** Raw campaign status from Smartlead (ACTIVE / PAUSED / COMPLETED / …). */
   status: string
   /** Completed ÷ total leads × 100 — how far the campaign has run. */

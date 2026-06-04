@@ -19,19 +19,22 @@ import {
   loadVisibleColumns,
   saveEmailsPerLead,
   saveVisibleColumns,
+  PERF_COLUMNS_KEY,
+  TAG_COLUMNS_KEY,
 } from './utils/storage'
 import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
-import TagForecastSummary from './components/TagForecastSummary'
+import TagForecastSummary, { TAG_COLUMNS } from './components/TagForecastSummary'
 import CampaignPerformanceTable, {
   PERF_COLUMNS,
 } from './components/CampaignPerformanceTable'
 
 // Default: every column visible. Stored prefs are merged over this so a newly
 // added column shows up by default for existing users.
-const DEFAULT_COLUMNS: Record<string, boolean> = Object.fromEntries(
-  PERF_COLUMNS.map((c) => [c.id, true]),
-)
+const allVisible = (cols: readonly { id: string }[]): Record<string, boolean> =>
+  Object.fromEntries(cols.map((c) => [c.id, true]))
+const DEFAULT_PERF_COLUMNS = allVisible(PERF_COLUMNS)
+const DEFAULT_TAG_COLUMNS = allVisible(TAG_COLUMNS)
 
 export default function App() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
@@ -41,8 +44,12 @@ export default function App() {
   const [tagMap] = useState<CampaignTagMap>(loadTagMap)
   const [emailsPerLead, setEmailsPerLead] = useState<number>(loadEmailsPerLead)
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => ({
-    ...DEFAULT_COLUMNS,
-    ...loadVisibleColumns(),
+    ...DEFAULT_PERF_COLUMNS,
+    ...loadVisibleColumns(PERF_COLUMNS_KEY),
+  }))
+  const [tagCols, setTagCols] = useState<Record<string, boolean>>(() => ({
+    ...DEFAULT_TAG_COLUMNS,
+    ...loadVisibleColumns(TAG_COLUMNS_KEY),
   }))
 
   const [loading, setLoading] = useState(true)
@@ -58,7 +65,8 @@ export default function App() {
 
   // Persist user settings
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
-  useEffect(() => saveVisibleColumns(visibleCols), [visibleCols])
+  useEffect(() => saveVisibleColumns(PERF_COLUMNS_KEY, visibleCols), [visibleCols])
+  useEffect(() => saveVisibleColumns(TAG_COLUMNS_KEY, tagCols), [tagCols])
 
   // Credentials are injected server-side by the /api proxy → empty strings here.
   const refresh = useCallback(async () => {
@@ -98,9 +106,16 @@ export default function App() {
 
   const tagOptions = useMemo(() => realTags.map((t) => t.tagName), [realTags])
 
+  // tagName(lower) -> total daily sending volume, shown next to each campaign.
+  const tagVolumeByName = useMemo(
+    () =>
+      new Map(realTags.map((t) => [t.tagName.toLowerCase(), t.totalDailyVolume])),
+    [realTags],
+  )
+
   const perfRows = useMemo(
-    () => buildCampaignPerformance(campaigns, tagMap, tagOptions),
-    [campaigns, tagMap, tagOptions],
+    () => buildCampaignPerformance(campaigns, tagMap, tagOptions, tagVolumeByName),
+    [campaigns, tagMap, tagOptions, tagVolumeByName],
   )
 
   const tagForecasts = useMemo(
@@ -235,6 +250,8 @@ export default function App() {
           tags={tagForecasts}
           emailsPerLead={emailsPerLead}
           loading={loading}
+          visibleCols={tagCols}
+          onColumnsChange={setTagCols}
         />
 
         <CampaignPerformanceTable
