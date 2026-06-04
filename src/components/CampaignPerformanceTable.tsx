@@ -362,9 +362,7 @@ export default function CampaignPerformanceTable({
           <h2 className="font-display text-[19px] font-semibold leading-none tracking-[-0.01em] text-ink">
             Campaign Performance
           </h2>
-          <span className="text-[12px] font-medium text-faint">
-            Rates are ÷ Sent · Lead Rate = Positive Replies ÷ Total Replies
-          </span>
+
         </div>
       </div>
 
