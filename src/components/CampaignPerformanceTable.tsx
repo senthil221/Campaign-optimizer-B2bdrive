@@ -1,15 +1,23 @@
-import { useMemo, useState } from 'react'
-import type { CampaignPerformance } from '../types'
+import { Fragment, useMemo, useState } from 'react'
+import type { CampaignPerformance, SequenceStat } from '../types'
+
+interface SeqState {
+  loading: boolean
+  error: string | null
+  data: SequenceStat[] | null
+}
 
 interface Props {
   rows: CampaignPerformance[]
   tagOptions: string[]
   loading: boolean
   onUpdateMaxLeads: (campaignId: number, value: number) => Promise<void>
+  fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
 }
 
 const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
+const ratio = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
 const TH = 'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
 const TD = 'px-4 py-2 whitespace-nowrap align-middle tnum tabular-nums'
@@ -101,14 +109,116 @@ function MaxLeadsCell({
   )
 }
 
+// Per-variant analytics shown when a campaign row is expanded.
+function SequenceBreakdown({ state }: { state: SeqState | undefined }) {
+  if (!state || state.loading) {
+    return (
+      <div className="space-y-1.5 px-6 py-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-5 animate-pulse rounded bg-white/5" />
+        ))}
+      </div>
+    )
+  }
+  if (state.error) {
+    return (
+      <div className="px-6 py-4 text-xs text-critical">
+        Couldn’t load variant performance: {state.error}
+      </div>
+    )
+  }
+  const rows = state.data ?? []
+  if (rows.length === 0) {
+    return <div className="px-6 py-4 text-xs text-faint">No sequence data.</div>
+  }
+
+  const SH = 'px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-faint whitespace-nowrap'
+  const SD = 'px-3 py-1.5 whitespace-nowrap tnum tabular-nums text-[12px]'
+
+  return (
+    <div className="border-l-2 border-lime/30 bg-base/60 px-4 py-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+        Variant performance
+      </div>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-line-soft">
+            <th className={`${SH} text-left`}>Sequence</th>
+            <th className={`${SH} text-right`}>Sent</th>
+            <th className={`${SH} text-right`}>Replied</th>
+            <th className={`${SH} text-right`}>Positive</th>
+            <th className={`${SH} text-right`}>Bounced</th>
+            <th className={`${SH} text-right`}>Sender bnc.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((s) => {
+            const label = `${s.seqNumber}. Email${s.variantLabel ? ` – ${s.variantLabel}` : ''}`
+            return (
+              <tr key={s.id} className="border-b border-line-soft last:border-0">
+                <td className={`${SD} font-medium text-ink`}>{label}</td>
+                <td className={`${SD} text-right text-ink`}>{fmt(s.sent)}</td>
+                <td className={`${SD} text-right text-muted`}>
+                  {fmt(s.replied)}{' '}
+                  <span className="text-faint">({pct(ratio(s.replied, s.sent))})</span>
+                </td>
+                <td className={`${SD} text-right ${s.positiveReplies > 0 ? 'text-positive' : 'text-faint'}`}>
+                  {fmt(s.positiveReplies)}{' '}
+                  <span className="opacity-70">({pct(ratio(s.positiveReplies, s.replied))})</span>
+                </td>
+                <td className={`${SD} text-right ${s.bounced > 0 ? 'text-critical' : 'text-faint'}`}>
+                  {fmt(s.bounced)}{' '}
+                  <span className="opacity-70">({pct(ratio(s.bounced, s.sent))})</span>
+                </td>
+                <td className={`${SD} text-right ${s.senderBounced > 0 ? 'text-critical' : 'text-faint'}`}>
+                  {fmt(s.senderBounced)}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function CampaignPerformanceTable({
   rows,
   tagOptions,
   loading,
   onUpdateMaxLeads,
+  fetchSequences,
 }: Props) {
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState('')
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
+
+  const toggleExpand = (id: number) => {
+    if (expanded === id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(id)
+    const cached = seqCache[id]
+    if (!cached || (cached.error && !cached.loading)) {
+      setSeqCache((p) => ({ ...p, [id]: { loading: true, error: null, data: null } }))
+      fetchSequences(id)
+        .then((data) =>
+          setSeqCache((p) => ({ ...p, [id]: { loading: false, error: null, data } })),
+        )
+        .catch((e) =>
+          setSeqCache((p) => ({
+            ...p,
+            [id]: {
+              loading: false,
+              error: e instanceof Error ? e.message : String(e),
+              data: null,
+            },
+          })),
+        )
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -200,16 +310,32 @@ export default function CampaignPerformanceTable({
 
             {filtered.map((r) => {
               const c = r.campaign
+              const isOpen = expanded === c.campaignId
               return (
+                <Fragment key={c.campaignId}>
                 <tr
-                  key={c.campaignId}
-                  className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.022]"
+                  className={`border-b border-line-soft transition last:border-0 hover:bg-white/[0.022] ${
+                    isOpen ? 'bg-white/[0.03]' : ''
+                  }`}
                 >
-                  <td
-                    className="max-w-[300px] truncate px-4 py-2 pl-5 align-middle font-medium text-ink"
-                    title={`${c.campaignName} · #${c.campaignId}`}
-                  >
-                    {c.campaignName}
+                  <td className="max-w-[320px] px-4 py-2 pl-3 align-middle">
+                    <button
+                      onClick={() => toggleExpand(c.campaignId)}
+                      className="flex w-full items-center gap-2 text-left"
+                      title="Show variant performance"
+                    >
+                      <span
+                        className={`shrink-0 text-faint transition-transform ${isOpen ? 'rotate-90 text-lime' : ''}`}
+                      >
+                        ›
+                      </span>
+                      <span
+                        className="truncate font-medium text-ink"
+                        title={`${c.campaignName} · #${c.campaignId}`}
+                      >
+                        {c.campaignName}
+                      </span>
+                    </button>
                   </td>
                   <td className="px-4 py-2 align-middle">
                     {r.tagName ? (
@@ -251,6 +377,14 @@ export default function CampaignPerformanceTable({
                     />
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={9} className="p-0">
+                      <SequenceBreakdown state={seqCache[c.campaignId]} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>

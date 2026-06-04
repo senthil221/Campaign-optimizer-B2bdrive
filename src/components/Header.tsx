@@ -25,20 +25,20 @@ export default function Header({
 }: Props) {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-base/95 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-6 py-4 lg:px-10">
-        <div className="flex items-center gap-3.5">
-          <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-lime/12 ring-1 ring-lime/25">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-6 py-3 lg:px-10">
+        <div className="flex items-center gap-3">
+          <div className="grid h-8 w-8 place-items-center rounded-[9px] bg-lime/12 ring-1 ring-lime/25">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
               <rect x="3" y="13" width="4" height="8" rx="1.2" fill="#C6F24E" opacity="0.55" />
               <rect x="10" y="8" width="4" height="13" rx="1.2" fill="#C6F24E" opacity="0.8" />
               <rect x="17" y="3" width="4" height="18" rx="1.2" fill="#C6F24E" />
             </svg>
           </div>
           <div>
-            <h1 className="font-display text-[22px] font-semibold leading-none tracking-[-0.01em] text-ink">
-              Lead Forecast
+            <h1 className="font-display text-[18px] font-semibold leading-none tracking-[-0.01em] text-ink">
+              Campaign Optimizer
             </h1>
-            <p className="mt-1.5 text-[12px] font-medium text-muted">
+            <p className="mt-1 text-[11px] font-medium text-muted">
               Tag depletion &amp; campaign performance
             </p>
           </div>

@@ -5,6 +5,7 @@ import type {
   LoadCampaignsResult,
   RawCampaignAnalytics,
   RawEmailAccount,
+  SequenceStat,
 } from '../types'
 import { num } from '../utils/campaignCalculations'
 
@@ -15,6 +16,7 @@ const EMAIL_ACCOUNTS_URL = '/api/email-accounts'
 const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
+const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -451,6 +453,55 @@ export async function updateMaxLeadsPerDay(
   if (Array.isArray(obj?.errors) && obj.errors.length) {
     throw new Error(`Smartlead rejected the update: ${preview(obj.errors)}`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-campaign sequence / variant analytics (lazy, on row expand)
+// ---------------------------------------------------------------------------
+
+export async function fetchCampaignSequences(
+  jwt: string,
+  campaignId: number,
+): Promise<SequenceStat[]> {
+  const res = await fetch(`${CAMPAIGN_SEQUENCES_URL}?id=${campaignId}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Sequence request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Sequence response was not JSON. Response: ${preview(text)}`)
+  }
+  const obj = json as Record<string, unknown>
+  if (Array.isArray(obj?.errors) && obj.errors.length) {
+    throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
+  }
+  const rows = extractArray(json, ['grouped_email_campaign_stats'])
+  if (!rows) return []
+
+  return rows.map((r) => {
+    const o = (r ?? {}) as Record<string, unknown>
+    const label = o.variant_label
+    return {
+      id: num(o.id, 0),
+      seqNumber: num(o.seq_number, 0),
+      variantLabel: label != null && String(label).trim() ? String(label) : null,
+      sent: num(o.sent_count, 0),
+      replied: num(o.reply_count, 0),
+      positiveReplies: num(o.positive_reply_count, 0),
+      bounced: num(o.bounce_count, 0),
+      senderBounced: num(o.sender_bounce_count, 0),
+      opened: num(o.open_count, 0),
+      clicked: num(o.click_count, 0),
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------

@@ -173,6 +173,20 @@ export interface CampaignPerformance {
   maxLeadsPerDay: number | null
 }
 
+/** One sequence step / A-B variant row from grouped_email_campaign_stats. */
+export interface SequenceStat {
+  id: number
+  seqNumber: number
+  variantLabel: string | null
+  sent: number
+  replied: number
+  positiveReplies: number
+  bounced: number
+  senderBounced: number
+  opened: number
+  clicked: number
+}
+
 /** campaign_id (string) -> tag_name */
 export type CampaignTagMap = Record<string, string>
 

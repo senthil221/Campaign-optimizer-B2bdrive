@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Campaign, CampaignTagMap, EmailAccount } from './types'
 import {
+  fetchCampaignSequences,
   fetchEmailAccounts,
   loadCampaigns,
   updateMaxLeadsPerDay,
@@ -127,6 +128,11 @@ export default function App() {
     [],
   )
 
+  const fetchSequences = useCallback(
+    (campaignId: number) => fetchCampaignSequences('', campaignId),
+    [],
+  )
+
   return (
     <div className="min-h-full">
       <Header
@@ -188,6 +194,7 @@ export default function App() {
           tagOptions={tagOptions}
           loading={loading}
           onUpdateMaxLeads={handleUpdateMaxLeads}
+          fetchSequences={fetchSequences}
         />
 
         {rawSample != null && (
