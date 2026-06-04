@@ -33,8 +33,16 @@ import CampaignPerformanceTable, {
 // added column shows up by default for existing users.
 const allVisible = (cols: readonly { id: string }[]): Record<string, boolean> =>
   Object.fromEntries(cols.map((c) => [c.id, true]))
-const DEFAULT_PERF_COLUMNS = allVisible(PERF_COLUMNS)
-const DEFAULT_TAG_COLUMNS = allVisible(TAG_COLUMNS)
+const DEFAULT_PERF_COLUMNS: Record<string, boolean> = {
+  ...allVisible(PERF_COLUMNS),
+  replied: false,
+  ooo: false,
+  status: false,
+}
+const DEFAULT_TAG_COLUMNS: Record<string, boolean> = {
+  ...allVisible(TAG_COLUMNS),
+  demand: false,
+}
 
 export default function App() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
