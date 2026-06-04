@@ -17,7 +17,6 @@ export const TAG_COLUMNS = [
   { id: 'status', label: 'Status' },
   { id: 'accts', label: 'Accts' },
   { id: 'volume', label: 'Volume' },
-  { id: 'used', label: 'Used today' },
   { id: 'unused', label: 'Idle inboxes' },
   { id: 'avgRep', label: 'Avg rep' },
   { id: 'disc', label: 'Disc.' },
@@ -112,7 +111,6 @@ export default function TagForecastSummary({
                   <th className={`${TH} border-l border-line text-right`}>Accts</th>
                 )}
                 {show('volume') && <th className={`${TH} text-right`}>Volume</th>}
-                {show('used') && <th className={`${TH} text-right`}>Used today</th>}
                 {show('unused') && (
                   <th className={`${TH} text-right`} title="Inboxes tagged but not assigned to any campaign">
                     Idle inboxes
@@ -184,9 +182,6 @@ export default function TagForecastSummary({
                       <td className={`${TD} text-right font-semibold text-ink`}>
                         {fmt(t.totalDailyVolume)}
                       </td>
-                    )}
-                    {show('used') && (
-                      <td className={`${TD} text-right text-muted`}>{fmt(t.usedToday)}</td>
                     )}
                     {show('unused') && (
                       <td
