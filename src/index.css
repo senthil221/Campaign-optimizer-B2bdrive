@@ -16,12 +16,10 @@ body {
   font-feature-settings: 'ss01' 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* A single restrained glow keeps the canvas premium, not busy. */
-  background-image: radial-gradient(
-    1100px 700px at 12% -12%,
-    rgba(198, 242, 78, 0.05),
-    transparent 62%
-  );
+  /* Dual glow: lime top-left, subtle blue bottom-right for depth */
+  background-image:
+    radial-gradient(900px 600px at 10% -8%, rgba(198,242,78,0.055) 0%, transparent 65%),
+    radial-gradient(600px 500px at 90% 100%, rgba(91,217,138,0.025) 0%, transparent 65%);
 }
 
 /* Very fine grain so the dark panels read as material, kept subtle. */

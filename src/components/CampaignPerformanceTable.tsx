@@ -44,11 +44,8 @@ const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
 const ratio = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
-const TH = 'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
-const TD = 'px-4 py-2 whitespace-nowrap align-middle tnum tabular-nums'
-
-const inputCls =
-  'h-9 rounded-xl border border-line bg-base px-3 text-sm text-ink placeholder:text-faint outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25'
+const TH = 'px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
+const TD = 'px-4 py-2.5 whitespace-nowrap align-middle tnum tabular-nums'
 
 const UNMAPPED = '__unmapped__'
 
@@ -356,51 +353,59 @@ export default function CampaignPerformanceTable({
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+      {/* Section header */}
+      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <div className="flex items-center gap-3">
-          <span className="h-4 w-[3px] rounded-full bg-lime" />
-          <h2 className="font-display text-[19px] font-semibold leading-none tracking-[-0.01em] text-ink">
+          <span className="h-[18px] w-[3px] rounded-full bg-gradient-to-b from-lime to-lime/30" />
+          <h2 className="font-display text-[16px] font-semibold leading-none tracking-[-0.02em] text-ink">
             Campaign Performance
           </h2>
-
         </div>
+        <span className="tnum text-[11px] font-medium text-faint/50">
+          {filtered.length}/{rows.length}
+        </span>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search campaign or ID…"
-          className={`${inputCls} w-56`}
-        />
+      <div className="flex items-center gap-2 border-b border-line px-5 py-2.5">
+        {/* Search */}
+        <div className="relative flex items-center">
+          <svg className="absolute left-2.5 text-faint/50" width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search…"
+            className="h-8 w-44 rounded-lg border border-line bg-white/[0.03] pl-8 pr-3 text-[13px] text-ink placeholder:text-faint/40 outline-none transition focus:border-lime/40 focus:bg-white/[0.05]"
+          />
+        </div>
+
+        {/* Tag filter */}
         <select
           value={tagFilter}
           onChange={(e) => setTagFilter(e.target.value)}
-          className={`${inputCls} w-48`}
+          className="h-8 rounded-lg border border-line bg-white/[0.03] px-2.5 text-[13px] text-muted outline-none transition focus:border-lime/40 focus:text-ink"
         >
           <option value="">All tags</option>
           {tagOptions.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
+            <option key={t} value={t}>{t}</option>
           ))}
-          <option value={UNMAPPED}>— Untagged —</option>
+          <option value={UNMAPPED}>Untagged</option>
         </select>
+
         <ColumnsMenu
           columns={PERF_COLUMNS}
           visibleCols={visibleCols}
           onColumnsChange={onColumnsChange}
         />
-        <span className="ml-auto tnum text-xs font-medium text-faint">
-          {filtered.length} of {rows.length}
-        </span>
       </div>
 
       {/* Table */}
       <div className="max-h-[64vh] overflow-auto">
         <table className="w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-panel-2">
+          <thead className="sticky top-0 z-10 bg-panel-2/95 backdrop-blur-sm">
             <tr className="border-b border-line">
               <th className={`${TH} pl-5 text-left`}>Campaign</th>
               {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
@@ -412,7 +417,7 @@ export default function CampaignPerformanceTable({
               {show('leadRate') && <th className={`${TH} text-right`}>Lead Rate</th>}
               {show('bounced') && <th className={`${TH} text-right`}>Bounced</th>}
               {show('maxLeads') && (
-                <th className={`${TH} border-l border-line text-right`}>Max&nbsp;leads/day</th>
+                <th className={`${TH} border-l border-line/60 text-right`}>Max leads/day</th>
               )}
               {show('actions') && (
                 <th className={`${TH} pr-5 text-right`}>Actions</th>
@@ -444,11 +449,11 @@ export default function CampaignPerformanceTable({
               return (
                 <Fragment key={c.campaignId}>
                 <tr
-                  className={`border-b border-line-soft transition last:border-0 hover:bg-white/[0.022] ${
+                  className={`group border-b border-line-soft transition-colors last:border-0 hover:bg-white/[0.03] ${
                     isOpen ? 'bg-white/[0.03]' : ''
                   }`}
                 >
-                  <td className="max-w-[340px] px-4 py-2 pl-3 align-middle">
+                  <td className="max-w-[340px] px-4 py-2.5 pl-3 align-middle">
                     <div className="flex items-center gap-2.5">
                       <span title={leadBreakdownTitle(c.leadStats)} className="shrink-0">
                         <ProgressRing percent={r.progressPercent} />

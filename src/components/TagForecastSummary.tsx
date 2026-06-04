@@ -5,8 +5,8 @@ import ColumnsMenu from './ColumnsMenu'
 const fmt = (n: number) => n.toLocaleString()
 const daysFmt = (d: number | null) => (d === null ? '—' : String(d))
 
-const TH = 'px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
-const TD = 'px-3 py-1.5 whitespace-nowrap align-middle tnum tabular-nums text-[13px]'
+const TH = 'px-3 py-2.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
+const TD = 'px-3 py-2 whitespace-nowrap align-middle tnum tabular-nums text-[13px]'
 
 // Toggleable columns (the Tag name column is always shown).
 export const TAG_COLUMNS = [
@@ -48,13 +48,11 @@ const repColor = (r: number) =>
 
 export default function TagForecastSummary({
   tags,
-  emailsPerLead,
   loading,
   visibleCols,
   onColumnsChange,
 }: {
   tags: TagForecast[]
-  emailsPerLead: number
   loading: boolean
   visibleCols: Record<string, boolean>
   onColumnsChange: (next: Record<string, boolean>) => void
@@ -72,26 +70,19 @@ export default function TagForecastSummary({
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
-        <div className="flex items-center gap-2.5">
-          <span className="h-3.5 w-[3px] rounded-full bg-lime" />
-          <h2 className="font-display text-[17px] font-semibold leading-none tracking-[-0.01em] text-ink">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3.5">
+        <div className="flex items-center gap-3">
+          <span className="h-[18px] w-[3px] rounded-full bg-gradient-to-b from-lime to-lime/30" />
+          <h2 className="font-display text-[16px] font-semibold leading-none tracking-[-0.02em] text-ink">
             Tag Overview
           </h2>
-          <span className="text-[11px] font-medium text-faint">
-            forecast &amp; sending health
-          </span>
+          <span className="hidden text-[11px] text-faint/60 sm:block">sending health &amp; forecast</span>
         </div>
-        <div className="flex items-center gap-2.5">
-          <span className="rounded-full border border-line bg-base px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
-            Demand = Not started × {emailsPerLead}
-          </span>
-          <ColumnsMenu
-            columns={TAG_COLUMNS}
-            visibleCols={visibleCols}
-            onColumnsChange={onColumnsChange}
-          />
-        </div>
+        <ColumnsMenu
+          columns={TAG_COLUMNS}
+          visibleCols={visibleCols}
+          onColumnsChange={onColumnsChange}
+        />
       </div>
 
       {loading && rows.length === 0 ? (
@@ -133,7 +124,7 @@ export default function TagForecastSummary({
                 return (
                   <tr
                     key={t.tagName}
-                    className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.022]"
+                    className="group border-b border-line-soft transition-colors last:border-0 hover:bg-white/[0.03]"
                   >
                     <td
                       className={`max-w-[200px] truncate border-l-[3px] px-3 py-1.5 pl-[17px] align-middle text-[13px] font-medium text-ink ${RAIL[t.status]}`}

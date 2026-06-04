@@ -14,13 +14,15 @@ function Stat({
   value,
   tone = 'default',
   loading,
+  suffix,
 }: {
   label: string
   value: number
   tone?: Tone
   loading?: boolean
+  suffix?: string
 }) {
-  const color =
+  const numColor =
     tone === 'lime'
       ? 'text-lime'
       : tone === 'critical'
@@ -33,17 +35,36 @@ function Stat({
             : 'text-faint'
           : 'text-ink'
 
+  const accentBar =
+    tone === 'critical' && value > 0
+      ? 'after:bg-critical'
+      : tone === 'warn' && value > 0
+        ? 'after:bg-warn'
+        : tone === 'lime'
+          ? 'after:bg-lime'
+          : 'after:bg-transparent'
+
   return (
-    <div className="flex flex-col gap-1.5 px-5 py-3">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+    <div
+      className={`group relative flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 transition-colors hover:bg-white/[0.02]
+        after:absolute after:bottom-0 after:left-6 after:h-[2px] after:w-8 after:rounded-full after:opacity-0 after:transition-opacity after:duration-300 group-hover:after:opacity-100 ${accentBar}`}
+    >
+      <span className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.18em] text-faint/70">
         {label}
       </span>
       {loading ? (
-        <div className="h-6 w-14 animate-pulse rounded bg-white/5" />
+        <div className="h-7 w-16 animate-pulse rounded-md bg-white/5" />
       ) : (
-        <span className={`tnum font-display text-[24px] font-semibold leading-none tracking-[-0.02em] ${color}`}>
-          {value.toLocaleString()}
-        </span>
+        <div className="flex items-baseline gap-1.5">
+          <span
+            className={`tnum font-display text-[28px] font-bold leading-none tracking-[-0.03em] ${numColor}`}
+          >
+            {value.toLocaleString()}
+          </span>
+          {suffix && (
+            <span className="text-[11px] font-medium text-faint">{suffix}</span>
+          )}
+        </div>
       )}
     </div>
   )
@@ -58,15 +79,16 @@ export default function SummaryCards({
   loading,
 }: Props) {
   return (
-    <div className="grid grid-cols-2 divide-x divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-panel sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
+    <div className="flex items-stretch divide-x divide-line overflow-hidden overflow-x-auto rounded-2xl border border-line bg-panel shadow-panel">
       <Stat label="Campaigns" value={totalCampaigns} loading={loading} />
       <Stat label="Untagged" value={unmapped} loading={loading} />
-      <Stat label="Critical tags" value={critical} tone="critical" loading={loading} />
+      <Stat label="Critical" value={critical} tone="critical" loading={loading} />
       <Stat label="Upload soon" value={uploadSoon} tone="warn" loading={loading} />
       <Stat
-        label="Daily send volume"
+        label="Daily volume"
         value={totalDailyVolume}
         tone="lime"
+        suffix="/ day"
         loading={loading}
       />
     </div>

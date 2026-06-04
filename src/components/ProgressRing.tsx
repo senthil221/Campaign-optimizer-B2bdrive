@@ -1,9 +1,9 @@
-// Compact donut showing how far a campaign has run, with the % in the center.
-// Color shifts with progress (faint → amber → green → lime) so a glance reads.
+// Donut ring showing campaign completion %. Color shifts: lime-dim → amber → green → lime.
+// Sized up to 40px default for better in-table legibility.
 export function ProgressRing({
   percent,
-  size = 34,
-  stroke = 4,
+  size = 40,
+  stroke = 3.5,
 }: {
   percent: number
   size?: number
@@ -16,6 +16,7 @@ export function ProgressRing({
   const color =
     p >= 100 ? '#C6F24E' : p >= 66 ? '#5BD98A' : p >= 33 ? '#F4BD50' : '#acd93f'
   const center = size / 2
+  const glowId = `ring-glow-${Math.round(p)}`
 
   return (
     <svg
@@ -25,15 +26,26 @@ export function ProgressRing({
       className="shrink-0"
       aria-label={`${Math.round(p)}% complete`}
     >
+      <defs>
+        <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
       <g transform={`rotate(-90 ${center} ${center})`}>
+        {/* Track */}
         <circle
           cx={center}
           cy={center}
           r={r}
           fill="none"
-          stroke="rgba(255,255,255,0.08)"
+          stroke="rgba(255,255,255,0.07)"
           strokeWidth={stroke}
         />
+        {/* Fill arc */}
         <circle
           cx={center}
           cy={center}
@@ -44,16 +56,23 @@ export function ProgressRing({
           strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+          filter={`url(#${glowId})`}
+          style={{ transition: 'stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1)' }}
         />
       </g>
+      {/* Center label */}
       <text
         x={center}
         y={center}
         textAnchor="middle"
         dominantBaseline="central"
-        className="fill-ink font-semibold tabular-nums"
-        style={{ fontSize: size * 0.28 }}
+        fill="#F4F4F5"
+        fontWeight="700"
+        style={{
+          fontSize: size * 0.27,
+          fontVariantNumeric: 'tabular-nums',
+          fontFeatureSettings: '"tnum" 1',
+        }}
       >
         {Math.round(p)}%
       </text>

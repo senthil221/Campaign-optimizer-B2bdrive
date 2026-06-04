@@ -24,26 +24,27 @@ export default function Header({
   onRefresh,
 }: Props) {
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-base/95 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-6 py-3 lg:px-10">
+    <header className="sticky top-0 z-30 border-b border-line bg-base/95 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-6 py-3 lg:px-10">
+        {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="grid h-8 w-8 place-items-center rounded-[9px] bg-lime/12 ring-1 ring-lime/25">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <rect x="3" y="13" width="4" height="8" rx="1.2" fill="#C6F24E" opacity="0.55" />
-              <rect x="10" y="8" width="4" height="13" rx="1.2" fill="#C6F24E" opacity="0.8" />
+          <div className="grid h-8 w-8 place-items-center rounded-[9px] bg-lime/10 ring-1 ring-lime/20">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="3" y="13" width="4" height="8" rx="1.2" fill="#C6F24E" opacity="0.45" />
+              <rect x="10" y="8" width="4" height="13" rx="1.2" fill="#C6F24E" opacity="0.75" />
               <rect x="17" y="3" width="4" height="18" rx="1.2" fill="#C6F24E" />
             </svg>
           </div>
-          <div>
-            <h1 className="font-display text-[18px] font-semibold leading-none tracking-[-0.01em] text-ink">
-              Campaign Optimizer
-            </h1>
-          </div>
+          <h1 className="font-display text-[17px] font-semibold leading-none tracking-[-0.02em] text-ink">
+            Campaign Optimizer
+          </h1>
         </div>
 
-        <div className="flex items-center gap-3 sm:gap-5">
-          <label className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-            Emails / lead
+        {/* Right controls */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          {/* Emails-per-lead setting */}
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-panel px-2.5 py-1.5 transition hover:border-line/60 hover:bg-white/[0.03]">
+            <span className="text-[10px] font-medium text-faint">Emails / lead</span>
             <input
               type="number"
               min={1}
@@ -51,37 +52,44 @@ export default function Header({
               onChange={(e) =>
                 onEmailsPerLeadChange(Math.max(1, Number(e.target.value) || 1))
               }
-              className="tnum w-11 rounded-lg border border-line bg-base px-2 py-1 text-center text-sm font-semibold text-ink outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25"
+              className="tnum w-8 bg-transparent text-center text-[13px] font-semibold text-ink outline-none"
             />
           </label>
 
-          <div className="hidden items-center gap-2 text-right sm:flex">
+          {/* Live indicator */}
+          <div className="hidden items-center gap-2 sm:flex">
             <span
-              className={`h-2 w-2 rounded-full ${
-                loading
-                  ? 'animate-pulse bg-warn'
-                  : 'bg-positive shadow-[0_0_7px_rgba(91,217,138,0.6)]'
-              }`}
-            />
-            <div>
-              <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-faint">
+              className={`relative flex h-2 w-2 ${loading ? '' : 'shadow-[0_0_6px_rgba(91,217,138,0.7)]'}`}
+            >
+              {!loading && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-positive opacity-50" />
+              )}
+              <span
+                className={`relative inline-flex h-2 w-2 rounded-full ${
+                  loading ? 'animate-pulse bg-warn' : 'bg-positive'
+                }`}
+              />
+            </span>
+            <div className="leading-none">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-faint">
                 {loading ? 'Syncing' : 'Live'}
               </div>
-              <div className="tnum text-[12px] font-medium text-muted">
+              <div className="tnum mt-0.5 text-[11px] text-muted/70">
                 {formatTime(lastUpdated)}
               </div>
             </div>
           </div>
 
+          {/* Refresh */}
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-lime px-4 py-2.5 text-sm font-bold text-base shadow-glow transition hover:bg-lime-dim disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-lime px-4 py-2 text-[13px] font-bold text-base shadow-glow transition hover:bg-lime-dim active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span className={`text-base leading-none ${loading ? 'animate-spin' : ''}`}>
+            <span className={`text-[14px] leading-none ${loading ? 'animate-spin' : ''}`}>
               ↻
             </span>
-            {loading ? 'Refreshing' : 'Refresh'}
+            {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>

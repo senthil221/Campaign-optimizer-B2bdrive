@@ -256,7 +256,6 @@ export default function App() {
 
         <TagForecastSummary
           tags={tagForecasts}
-          emailsPerLead={emailsPerLead}
           loading={loading}
           visibleCols={tagCols}
           onColumnsChange={setTagCols}
