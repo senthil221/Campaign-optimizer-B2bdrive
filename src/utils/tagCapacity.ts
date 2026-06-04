@@ -50,9 +50,16 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     for (const { id, name } of pairs) {
       const entry = ensure(id, name)
       entry.accountCount += 1
+
+      // A disconnected mailbox can't send, so it adds no deliverable volume.
+      // It still counts toward the account total and the disconnect tally.
+      if (!account.connected) {
+        entry.disconnects += 1
+        continue
+      }
+
       entry.totalDailyVolume += account.messagePerDay
       entry.usedToday += account.dailySentCount
-      if (!account.connected) entry.disconnects += 1
       if (account.warmupReputation > 0) {
         entry.reputationSum += account.warmupReputation
         entry.reputationCount += 1

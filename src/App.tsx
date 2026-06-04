@@ -6,12 +6,7 @@ import {
   buildTagForecasts,
 } from './utils/campaignCalculations'
 import { buildTagVolumes } from './utils/tagCapacity'
-import {
-  loadEmailsPerLead,
-  loadTagMap,
-  saveEmailsPerLead,
-  saveTagMap,
-} from './utils/storage'
+import { loadEmailsPerLead, loadTagMap, saveEmailsPerLead } from './utils/storage'
 import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
 import TagForecastSummary from './components/TagForecastSummary'
@@ -20,7 +15,9 @@ import CampaignPerformanceTable from './components/CampaignPerformanceTable'
 export default function App() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [tagMap, setTagMap] = useState<CampaignTagMap>(loadTagMap)
+  // Tags come from Smartlead's own campaign tags. Any legacy manual overrides
+  // in localStorage are still honoured, but the UI no longer edits them.
+  const [tagMap] = useState<CampaignTagMap>(loadTagMap)
   const [emailsPerLead, setEmailsPerLead] = useState<number>(loadEmailsPerLead)
 
   const [loading, setLoading] = useState(true)
@@ -30,7 +27,6 @@ export default function App() {
   const [rawSample, setRawSample] = useState<unknown>(null)
 
   // Persist user settings
-  useEffect(() => saveTagMap(tagMap), [tagMap])
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
 
   // Credentials are injected server-side by the /api proxy → empty strings here.
@@ -93,24 +89,6 @@ export default function App() {
     }
   }, [campaigns, perfRows, tagForecasts, realTags])
 
-  const autoMappedCount = useMemo(
-    () =>
-      perfRows.filter(
-        (r) => r.tagName && !tagMap[String(r.campaign.campaignId)],
-      ).length,
-    [perfRows, tagMap],
-  )
-
-  // ---- Mapping handlers (instant recalc via state) ----
-  const handleMapChange = useCallback((campaignId: number, tagName: string) => {
-    setTagMap((prev) => {
-      const next = { ...prev }
-      if (tagName) next[String(campaignId)] = tagName
-      else delete next[String(campaignId)]
-      return next
-    })
-  }, [])
-
   return (
     <div className="min-h-full">
       <Header
@@ -151,22 +129,13 @@ export default function App() {
           loading={loading}
         />
 
-        {(autoMappedCount > 0 || kpis.unmapped > 0) && (
+        {kpis.unmapped > 0 && (
           <div className="flex flex-wrap gap-2 text-[13px]">
-            {autoMappedCount > 0 && (
-              <span className="inline-flex items-center gap-2 rounded-full border border-positive/25 bg-positive/[0.08] px-3.5 py-1.5 text-positive">
-                <span className="h-1.5 w-1.5 rounded-full bg-positive" />
-                <span className="font-semibold tnum">{autoMappedCount.toLocaleString()}</span>
-                auto-mapped from Smartlead tags
-              </span>
-            )}
-            {kpis.unmapped > 0 && (
-              <span className="inline-flex items-center gap-2 rounded-full border border-warn/25 bg-warn/[0.08] px-3.5 py-1.5 text-warn">
-                <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-                <span className="font-semibold tnum">{kpis.unmapped.toLocaleString()}</span>
-                need a tag — assign below to forecast
-              </span>
-            )}
+            <span className="inline-flex items-center gap-2 rounded-full border border-warn/25 bg-warn/[0.08] px-3.5 py-1.5 text-warn">
+              <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+              <span className="tnum font-semibold">{kpis.unmapped.toLocaleString()}</span>
+              untagged in Smartlead — won't show in the forecast
+            </span>
           </div>
         )}
 
@@ -180,7 +149,6 @@ export default function App() {
           rows={perfRows}
           tagOptions={tagOptions}
           loading={loading}
-          onMapChange={handleMapChange}
         />
 
         {rawSample != null && (

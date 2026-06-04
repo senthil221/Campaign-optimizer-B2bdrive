@@ -27,21 +27,25 @@ export default function Header({
     <header className="sticky top-0 z-30 border-b border-line bg-base/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-6 py-4 lg:px-10">
         <div className="flex items-center gap-3.5">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-lime/15 ring-1 ring-lime/30">
-            <span className="font-display text-2xl leading-none text-lime">⌁</span>
+          <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-lime/12 ring-1 ring-lime/25">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="3" y="13" width="4" height="8" rx="1.2" fill="#C6F24E" opacity="0.55" />
+              <rect x="10" y="8" width="4" height="13" rx="1.2" fill="#C6F24E" opacity="0.8" />
+              <rect x="17" y="3" width="4" height="18" rx="1.2" fill="#C6F24E" />
+            </svg>
           </div>
           <div>
-            <h1 className="font-display text-[26px] leading-none tracking-tight text-ink">
+            <h1 className="font-display text-[22px] font-semibold leading-none tracking-[-0.01em] text-ink">
               Lead Forecast
             </h1>
-            <p className="mt-1 text-xs text-muted">
-              Tag-level depletion &amp; campaign performance · Smartlead
+            <p className="mt-1.5 text-[12px] font-medium text-muted">
+              Tag depletion &amp; campaign performance
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3 sm:gap-5">
-          <label className="flex items-center gap-2.5 rounded-lg border border-line bg-panel px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted">
+          <label className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
             Emails / lead
             <input
               type="number"
@@ -50,7 +54,7 @@ export default function Header({
               onChange={(e) =>
                 onEmailsPerLeadChange(Math.max(1, Number(e.target.value) || 1))
               }
-              className="tnum w-12 rounded-md border border-line bg-base px-2 py-1 text-center text-sm font-semibold text-lime outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/30"
+              className="tnum w-11 rounded-lg border border-line bg-base px-2 py-1 text-center text-sm font-semibold text-ink outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25"
             />
           </label>
 
@@ -58,15 +62,15 @@ export default function Header({
             <span
               className={`h-2 w-2 rounded-full ${
                 loading
-                  ? 'animate-pulse bg-warn shadow-[0_0_8px_rgba(244,189,80,0.8)]'
-                  : 'bg-positive shadow-[0_0_8px_rgba(91,217,138,0.7)]'
+                  ? 'animate-pulse bg-warn'
+                  : 'bg-positive shadow-[0_0_7px_rgba(91,217,138,0.6)]'
               }`}
             />
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-faint">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-faint">
                 {loading ? 'Syncing' : 'Live'}
               </div>
-              <div className="tnum text-xs font-medium text-muted">
+              <div className="tnum text-[12px] font-medium text-muted">
                 {formatTime(lastUpdated)}
               </div>
             </div>
@@ -75,7 +79,7 @@ export default function Header({
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-lime px-4 py-2.5 text-sm font-semibold text-base shadow-glow transition hover:bg-lime-dim disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-lime px-4 py-2.5 text-sm font-bold text-base shadow-glow transition hover:bg-lime-dim disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className={`text-base leading-none ${loading ? 'animate-spin' : ''}`}>
               ↻

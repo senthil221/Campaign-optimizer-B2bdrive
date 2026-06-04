@@ -4,17 +4,18 @@ import StatusBadge from './StatusBadge'
 const fmt = (n: number) => n.toLocaleString()
 const daysFmt = (d: number | null) => (d === null ? '—' : String(d))
 
-const GTH = 'px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-faint/70'
-const TH = 'px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-faint whitespace-nowrap'
-const TD = 'px-3 py-2 whitespace-nowrap tnum font-mono'
+const TH = 'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
+const TD = 'px-3 py-3 whitespace-nowrap align-middle tnum tabular-nums'
 
+// Left accent border on the first cell (avoids positioning the <tr>, which
+// shifts table columns in Chrome).
 const RAIL: Record<CampaignStatus, string> = {
-  critical: 'before:bg-critical',
-  upload_soon: 'before:bg-warn',
-  no_capacity: 'before:bg-orange-400',
-  healthy: 'before:bg-positive/50',
-  unmapped: 'before:bg-transparent',
-  ended: 'before:bg-transparent',
+  critical: 'border-l-critical',
+  upload_soon: 'border-l-warn',
+  no_capacity: 'border-l-orange-400',
+  healthy: 'border-l-positive/45',
+  unmapped: 'border-l-transparent',
+  ended: 'border-l-transparent',
 }
 
 const daysColor = (d: number | null, status: CampaignStatus) => {
@@ -36,7 +37,6 @@ export default function TagForecastSummary({
   emailsPerLead: number
   loading: boolean
 }) {
-  // Order: most urgent forecast first, then idle pools by volume.
   const rows = [...tags].sort((a, b) => {
     const da = a.sharedTagDaysLeft
     const db = b.sharedTagDaysLeft
@@ -48,15 +48,17 @@ export default function TagForecastSummary({
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <span className="h-3.5 w-1 rounded-full bg-lime" />
-          <h2 className="font-display text-xl leading-none tracking-tight text-ink">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4">
+        <div className="flex items-center gap-3">
+          <span className="h-4 w-[3px] rounded-full bg-lime" />
+          <h2 className="font-display text-[19px] font-semibold leading-none tracking-[-0.01em] text-ink">
             Tag Overview
           </h2>
-          <span className="text-xs text-faint">· forecast &amp; sending health</span>
+          <span className="text-[12px] font-medium text-faint">
+            forecast &amp; sending health
+          </span>
         </div>
-        <span className="rounded-full border border-line bg-base px-2.5 py-1 text-[10px] font-medium text-muted">
+        <span className="rounded-full border border-line bg-base px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
           Demand = Not started × {emailsPerLead}
         </span>
       </div>
@@ -64,7 +66,7 @@ export default function TagForecastSummary({
       {loading && rows.length === 0 ? (
         <div className="space-y-1.5 p-4">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-7 animate-pulse rounded-md bg-white/5" />
+            <div key={i} className="h-9 animate-pulse rounded-md bg-white/5" />
           ))}
         </div>
       ) : rows.length === 0 ? (
@@ -75,29 +77,19 @@ export default function TagForecastSummary({
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              {/* group banner */}
-              <tr className="border-b border-line-soft">
-                <th />
-                <th className={`${GTH} border-l border-line-soft text-left`} colSpan={5}>
-                  Lead forecast
-                </th>
-                <th className={`${GTH} border-l border-line text-left`} colSpan={6}>
-                  Sending health
-                </th>
-              </tr>
               <tr className="border-b border-line">
-                <th className={`${TH} text-left`}>Tag</th>
-                <th className={`${TH} border-l border-line-soft text-right`}>Leads</th>
+                <th className={`${TH} pl-5 text-left`}>Tag</th>
+                <th className={`${TH} border-l border-line text-right`}>Leads</th>
                 <th className={`${TH} text-right`}>Not started</th>
                 <th className={`${TH} text-right`}>Demand</th>
-                <th className={`${TH} text-right`}>Days</th>
-                <th className={`${TH} text-left`}>Status</th>
+                <th className={`${TH} text-right`}>Days left</th>
+                <th className={`${TH} pl-4 text-left`}>Status</th>
                 <th className={`${TH} border-l border-line text-right`}>Accts</th>
                 <th className={`${TH} text-right`}>Volume</th>
                 <th className={`${TH} text-right`}>Used</th>
                 <th className={`${TH} text-right`}>Unused</th>
                 <th className={`${TH} text-right`}>Avg rep</th>
-                <th className={`${TH} text-right`}>Disc.</th>
+                <th className={`${TH} pr-5 text-right`}>Disc.</th>
               </tr>
             </thead>
             <tbody>
@@ -106,15 +98,15 @@ export default function TagForecastSummary({
                 return (
                   <tr
                     key={t.tagName}
-                    className={`group relative border-b border-line-soft transition last:border-0 hover:bg-white/[0.025] before:absolute before:left-0 before:top-0 before:h-full before:w-[3px] ${RAIL[t.status]}`}
+                    className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.022]"
                   >
                     <td
-                      className="max-w-[200px] truncate px-3 py-2 pl-4 font-sans font-medium text-ink"
+                      className={`max-w-[200px] truncate border-l-[3px] px-3 py-3 pl-[17px] align-middle font-medium text-ink ${RAIL[t.status]}`}
                       title={`${t.tagName} · ${t.mappedCampaigns} campaign(s)`}
                     >
                       {t.tagName}
                     </td>
-                    <td className={`${TD} border-l border-line-soft text-right text-ink`}>
+                    <td className={`${TD} border-l border-line text-right text-ink`}>
                       {idle ? <span className="text-faint">—</span> : fmt(t.leadsTotal)}
                     </td>
                     <td className={`${TD} text-right font-semibold text-ink`}>
@@ -123,9 +115,9 @@ export default function TagForecastSummary({
                     <td className={`${TD} text-right text-muted`}>
                       {idle ? <span className="text-faint">—</span> : fmt(t.sharedTagDemand)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className={`${TD} text-right`}>
                       <span
-                        className={`tnum font-display text-2xl leading-none ${daysColor(
+                        className={`tnum font-display text-[26px] font-semibold leading-none tracking-[-0.02em] ${daysColor(
                           t.sharedTagDaysLeft,
                           t.status,
                         )}`}
@@ -133,9 +125,9 @@ export default function TagForecastSummary({
                         {daysFmt(t.sharedTagDaysLeft)}
                       </span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-3 pl-4 align-middle">
                       {idle ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2 py-0.5 text-[11px] text-faint ring-1 ring-inset ring-line">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2 py-0.5 text-[11px] font-medium text-faint ring-1 ring-inset ring-line">
                           <span className="h-1.5 w-1.5 rounded-full bg-faint/60" />
                           Idle
                         </span>
@@ -161,7 +153,7 @@ export default function TagForecastSummary({
                       {t.avgWarmupReputation || '—'}
                     </td>
                     <td
-                      className={`${TD} text-right ${
+                      className={`${TD} pr-5 text-right ${
                         t.disconnects > 0 ? 'font-semibold text-critical' : 'text-faint'
                       }`}
                     >
