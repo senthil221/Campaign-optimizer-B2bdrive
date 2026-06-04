@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Campaign, CampaignTagMap, EmailAccount } from './types'
 import { fetchEmailAccounts, loadCampaigns } from './services/smartlead'
 import {
+  buildCampaignPerformance,
   buildTagForecasts,
-  computeAllCampaigns,
-  sortCampaigns,
 } from './utils/campaignCalculations'
 import { buildTagVolumes } from './utils/tagCapacity'
 import {
@@ -15,8 +14,8 @@ import {
 } from './utils/storage'
 import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
-import CampaignForecastTable from './components/CampaignForecastTable'
-import TagVolumePanel from './components/TagVolumePanel'
+import TagForecastSummary from './components/TagForecastSummary'
+import CampaignPerformanceTable from './components/CampaignPerformanceTable'
 
 export default function App() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
@@ -73,12 +72,9 @@ export default function App() {
 
   const tagOptions = useMemo(() => realTags.map((t) => t.tagName), [realTags])
 
-  const computed = useMemo(
-    () =>
-      sortCampaigns(
-        computeAllCampaigns(campaigns, realTags, tagMap, emailsPerLead),
-      ),
-    [campaigns, realTags, tagMap, emailsPerLead],
+  const perfRows = useMemo(
+    () => buildCampaignPerformance(campaigns, tagMap, tagOptions),
+    [campaigns, tagMap, tagOptions],
   )
 
   const tagForecasts = useMemo(
@@ -87,29 +83,22 @@ export default function App() {
   )
 
   const kpis = useMemo(() => {
-    let unmapped = 0
-    let critical = 0
-    let uploadSoon = 0
-    for (const r of computed) {
-      if (r.status === 'unmapped') unmapped++
-      else if (r.status === 'critical') critical++
-      else if (r.status === 'upload_soon') uploadSoon++
-    }
+    const mapped = tagForecasts.filter((t) => t.mappedCampaigns > 0)
     return {
-      totalCampaigns: computed.length,
-      unmapped,
-      critical,
-      uploadSoon,
+      totalCampaigns: campaigns.length,
+      unmapped: perfRows.filter((r) => !r.tagName).length,
+      critical: mapped.filter((t) => t.status === 'critical').length,
+      uploadSoon: mapped.filter((t) => t.status === 'upload_soon').length,
       totalDailyVolume: realTags.reduce((s, t) => s + t.totalDailyVolume, 0),
     }
-  }, [computed, realTags])
+  }, [campaigns, perfRows, tagForecasts, realTags])
 
   const autoMappedCount = useMemo(
     () =>
-      computed.filter(
+      perfRows.filter(
         (r) => r.tagName && !tagMap[String(r.campaign.campaignId)],
       ).length,
-    [computed, tagMap],
+    [perfRows, tagMap],
   )
 
   // ---- Mapping handlers (instant recalc via state) ----
@@ -191,20 +180,19 @@ export default function App() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          <div className="xl:col-span-3">
-            <CampaignForecastTable
-              rows={computed}
-              tagOptions={tagOptions}
-              loading={loading}
-              onMapChange={handleMapChange}
-              onBulkAssign={handleBulkAssign}
-            />
-          </div>
-          <div className="xl:col-span-1">
-            <TagVolumePanel tags={tagForecasts} loading={loading} />
-          </div>
-        </div>
+        <TagForecastSummary
+          tags={tagForecasts}
+          emailsPerLead={emailsPerLead}
+          loading={loading}
+        />
+
+        <CampaignPerformanceTable
+          rows={perfRows}
+          tagOptions={tagOptions}
+          loading={loading}
+          onMapChange={handleMapChange}
+          onBulkAssign={handleBulkAssign}
+        />
 
         {rawSample != null && (
           <details className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">

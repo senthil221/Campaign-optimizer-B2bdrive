@@ -31,6 +31,7 @@ export interface RawCampaignLeadStats {
   blocked?: number | null
   completed?: number | null
   inprogress?: number | null
+  interested?: number | null
   notStarted?: number | null
   stopped?: number | null
   senderBounced?: number | null
@@ -85,6 +86,7 @@ export interface CampaignLeadStats {
   total: number
   completed: number
   inprogress: number
+  interested: number
   notStarted: number
   paused: number
   blocked: number
@@ -139,8 +141,27 @@ export interface CampaignComputed {
 /** A tag's volume joined with the demand of campaigns mapped to it. */
 export interface TagForecast extends TagVolume {
   mappedCampaigns: number
+  /** Sum of leadStats.total across every campaign mapped to this tag. */
+  leadsTotal: number
+  /** Sum of leadStats.notStarted across every campaign mapped to this tag. */
+  notStartedTotal: number
+  /** notStartedTotal × emailsPerLead — total emails still owed by this tag. */
   sharedTagDemand: number
   sharedTagDaysLeft: number | null
+  status: CampaignStatus
+}
+
+/** Per-campaign performance row for the Smartlead-style metrics table. */
+export interface CampaignPerformance {
+  campaign: Campaign
+  tagName: string | null
+  sent: number
+  replied: number
+  oooReplied: number
+  interested: number
+  /** interested ÷ sent × 100 (per-email basis). */
+  leadRate: number
+  bounced: number
 }
 
 /** campaign_id (string) -> tag_name */

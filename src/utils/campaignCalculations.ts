@@ -1,6 +1,7 @@
 import type {
   Campaign,
   CampaignComputed,
+  CampaignPerformance,
   CampaignStatus,
   CampaignTagMap,
   TagForecast,
@@ -229,6 +230,21 @@ export function sortCampaigns(rows: CampaignComputed[]): CampaignComputed[] {
 // Tag forecasts: join tag volume with demand of campaigns mapped to it
 // ---------------------------------------------------------------------------
 
+/** Status for a whole tag pool, based on its summed depletion forecast. */
+function classifyTagStatus(args: {
+  notStartedTotal: number
+  totalDailyVolume: number
+  sharedTagDaysLeft: number | null
+}): CampaignStatus {
+  const { notStartedTotal, totalDailyVolume, sharedTagDaysLeft } = args
+  if (notStartedTotal <= 0) return 'ended'
+  if (totalDailyVolume <= 0) return 'no_capacity'
+  const d = sharedTagDaysLeft
+  if (d !== null && d <= 2) return 'critical'
+  if (d !== null && d <= 4) return 'upload_soon'
+  return 'healthy'
+}
+
 export function buildTagForecasts(
   tags: TagVolume[],
   campaigns: Campaign[],
@@ -243,12 +259,20 @@ export function buildTagForecasts(
     availableTags,
   )
 
+  // Per-tag rollups: campaign count, total leads, total not-started.
   const countMap = new Map<string, number>()
+  const leadsMap = new Map<string, number>()
+  const notStartedMap = new Map<string, number>()
   for (const c of campaigns) {
     const name = resolveTagName(c, tagMap, availableTags)
     if (!name) continue
     const key = name.toLowerCase()
     countMap.set(key, (countMap.get(key) ?? 0) + 1)
+    leadsMap.set(key, (leadsMap.get(key) ?? 0) + c.leadStats.total)
+    notStartedMap.set(
+      key,
+      (notStartedMap.get(key) ?? 0) + Math.max(0, c.leadStats.notStarted),
+    )
   }
 
   return tags
@@ -256,11 +280,52 @@ export function buildTagForecasts(
       const key = t.tagName.toLowerCase()
       const sharedTagDemand = demandMap.get(key) ?? 0
       const mappedCampaigns = countMap.get(key) ?? 0
+      const leadsTotal = leadsMap.get(key) ?? 0
+      const notStartedTotal = notStartedMap.get(key) ?? 0
       const sharedTagDaysLeft =
         mappedCampaigns > 0 && t.totalDailyVolume > 0
           ? Math.ceil(safeDivide(sharedTagDemand, t.totalDailyVolume))
           : null
-      return { ...t, mappedCampaigns, sharedTagDemand, sharedTagDaysLeft }
+      const status = classifyTagStatus({
+        notStartedTotal,
+        totalDailyVolume: t.totalDailyVolume,
+        sharedTagDaysLeft,
+      })
+      return {
+        ...t,
+        mappedCampaigns,
+        leadsTotal,
+        notStartedTotal,
+        sharedTagDemand,
+        sharedTagDaysLeft,
+        status,
+      }
     })
     .sort((a, b) => b.totalDailyVolume - a.totalDailyVolume)
+}
+
+// ---------------------------------------------------------------------------
+// Campaign performance (Smartlead-style metrics view)
+// ---------------------------------------------------------------------------
+
+export function buildCampaignPerformance(
+  campaigns: Campaign[],
+  tagMap: CampaignTagMap,
+  availableTags: string[] = [],
+): CampaignPerformance[] {
+  return campaigns
+    .map((c) => {
+      const interested = c.leadStats.interested
+      return {
+        campaign: c,
+        tagName: resolveTagName(c, tagMap, availableTags),
+        sent: c.sentCount,
+        replied: c.replyCount,
+        oooReplied: c.oooReplyCount,
+        interested,
+        leadRate: Math.round(safeDivide(interested, c.sentCount) * 100 * 100) / 100,
+        bounced: c.bounceCount,
+      }
+    })
+    .sort((a, b) => b.sent - a.sent)
 }

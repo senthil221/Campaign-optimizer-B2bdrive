@@ -171,6 +171,7 @@ export function normalizeCampaign(
       total: num(stats?.total, 0),
       completed: num(stats?.completed, 0),
       inprogress: num(stats?.inprogress, 0),
+      interested: num(stats?.interested, 0),
       notStarted: num(stats?.notStarted, 0),
       paused: num(stats?.paused, 0),
       blocked: num(stats?.blocked, 0),
