@@ -29,7 +29,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  const [rawSample, setRawSample] = useState<unknown>(null)
 
   // Latest campaigns, for reverting an optimistic edit without stale closures.
   const campaignsRef = useRef<Campaign[]>([])
@@ -57,7 +56,6 @@ export default function App() {
     if (campRes.status === 'fulfilled') {
       setCampaigns(campRes.value.campaigns)
       setWarnings(campRes.value.warnings)
-      setRawSample(campRes.value.rawSample)
     } else {
       errs.push(`Campaigns: ${campRes.reason?.message ?? campRes.reason}`)
     }
@@ -196,17 +194,6 @@ export default function App() {
           onUpdateMaxLeads={handleUpdateMaxLeads}
           fetchSequences={fetchSequences}
         />
-
-        {rawSample != null && (
-          <details className="rounded-xl border border-line bg-panel px-4 py-2.5 text-xs text-muted">
-            <summary className="cursor-pointer select-none font-medium text-faint transition hover:text-muted">
-              Debug · raw campaign sample (find Smartlead's tag field)
-            </summary>
-            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line-soft bg-base p-3 font-mono text-[11px] leading-relaxed text-muted">
-              {JSON.stringify(rawSample, null, 2)}
-            </pre>
-          </details>
-        )}
       </main>
     </div>
   )

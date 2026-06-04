@@ -67,6 +67,7 @@ function MaxLeadsCell({
   return (
     <div className="flex items-center justify-end gap-1.5">
       <div
+        title="Live max new leads/day from Smartlead — type a number and press Enter to update"
         className={`flex h-8 w-[104px] items-center rounded-lg border bg-base pl-2.5 pr-1 transition focus-within:border-lime/50 focus-within:ring-1 focus-within:ring-lime/25 ${
           state === 'error' ? 'border-critical/60' : 'border-line'
         }`}
