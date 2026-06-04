@@ -76,7 +76,10 @@ function extractArray(json: unknown, keys: string[]): unknown[] | null {
 // Normalization (never crashes on missing fields)
 // ---------------------------------------------------------------------------
 
-export function normalizeEmailAccount(raw: RawEmailAccount, isInUse = true): EmailAccount {
+export function normalizeEmailAccount(
+  raw: RawEmailAccount,
+  isInUseFallback = true,
+): EmailAccount {
   const tagIds: number[] = []
   const tagNames: string[] = []
 
@@ -96,6 +99,12 @@ export function normalizeEmailAccount(raw: RawEmailAccount, isInUse = true): Ema
   // Treat an account as disconnected only when Smartlead explicitly reports a
   // failed SMTP/IMAP handshake. Absent fields are assumed connected.
   const connected = raw?.is_smtp_success !== false && raw?.is_imap_success !== false
+
+  // Trust the account's own is_in_use flag (assigned to a campaign = in use,
+  // otherwise idle). The fetch-bucket value is only a fallback for when the
+  // endpoint omits the field — so dedupe order can't misclassify an inbox.
+  const isInUse =
+    typeof raw?.is_in_use === 'boolean' ? raw.is_in_use : isInUseFallback
 
   return {
     id: num(raw?.id, 0),
