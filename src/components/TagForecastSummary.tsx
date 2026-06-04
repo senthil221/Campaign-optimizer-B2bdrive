@@ -4,8 +4,8 @@ import StatusBadge from './StatusBadge'
 const fmt = (n: number) => n.toLocaleString()
 const daysFmt = (d: number | null) => (d === null ? '—' : String(d))
 
-const TH = 'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
-const TD = 'px-3 py-3 whitespace-nowrap align-middle tnum tabular-nums'
+const TH = 'px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
+const TD = 'px-3 py-1.5 whitespace-nowrap align-middle tnum tabular-nums text-[13px]'
 
 // Left accent border on the first cell (avoids positioning the <tr>, which
 // shifts table columns in Chrome).
@@ -48,13 +48,13 @@ export default function TagForecastSummary({
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4">
-        <div className="flex items-center gap-3">
-          <span className="h-4 w-[3px] rounded-full bg-lime" />
-          <h2 className="font-display text-[19px] font-semibold leading-none tracking-[-0.01em] text-ink">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
+        <div className="flex items-center gap-2.5">
+          <span className="h-3.5 w-[3px] rounded-full bg-lime" />
+          <h2 className="font-display text-[17px] font-semibold leading-none tracking-[-0.01em] text-ink">
             Tag Overview
           </h2>
-          <span className="text-[12px] font-medium text-faint">
+          <span className="text-[11px] font-medium text-faint">
             forecast &amp; sending health
           </span>
         </div>
@@ -64,9 +64,9 @@ export default function TagForecastSummary({
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className="space-y-1.5 p-4">
+        <div className="space-y-1.5 p-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-9 animate-pulse rounded-md bg-white/5" />
+            <div key={i} className="h-7 animate-pulse rounded-md bg-white/5" />
           ))}
         </div>
       ) : rows.length === 0 ? (
@@ -101,7 +101,7 @@ export default function TagForecastSummary({
                     className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.022]"
                   >
                     <td
-                      className={`max-w-[200px] truncate border-l-[3px] px-3 py-3 pl-[17px] align-middle font-medium text-ink ${RAIL[t.status]}`}
+                      className={`max-w-[200px] truncate border-l-[3px] px-3 py-1.5 pl-[17px] align-middle text-[13px] font-medium text-ink ${RAIL[t.status]}`}
                       title={`${t.tagName} · ${t.mappedCampaigns} campaign(s)`}
                     >
                       {t.tagName}
@@ -117,7 +117,7 @@ export default function TagForecastSummary({
                     </td>
                     <td className={`${TD} text-right`}>
                       <span
-                        className={`tnum font-display text-[26px] font-semibold leading-none tracking-[-0.02em] ${daysColor(
+                        className={`tnum font-display text-[19px] font-semibold leading-none tracking-[-0.01em] ${daysColor(
                           t.sharedTagDaysLeft,
                           t.status,
                         )}`}
@@ -125,7 +125,7 @@ export default function TagForecastSummary({
                         {daysFmt(t.sharedTagDaysLeft)}
                       </span>
                     </td>
-                    <td className="px-3 py-3 pl-4 align-middle">
+                    <td className="px-3 py-1.5 pl-4 align-middle">
                       {idle ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.03] px-2 py-0.5 text-[11px] font-medium text-faint ring-1 ring-inset ring-line">
                           <span className="h-1.5 w-1.5 rounded-full bg-faint/60" />

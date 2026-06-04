@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Campaign, CampaignTagMap, EmailAccount } from './types'
-import { fetchEmailAccounts, loadCampaigns } from './services/smartlead'
+import {
+  fetchEmailAccounts,
+  loadCampaigns,
+  updateMaxLeadsPerDay,
+} from './services/smartlead'
 import {
   buildCampaignPerformance,
   buildTagForecasts,
@@ -25,6 +29,12 @@ export default function App() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [rawSample, setRawSample] = useState<unknown>(null)
+
+  // Latest campaigns, for reverting an optimistic edit without stale closures.
+  const campaignsRef = useRef<Campaign[]>([])
+  useEffect(() => {
+    campaignsRef.current = campaigns
+  }, [campaigns])
 
   // Persist user settings
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
@@ -89,6 +99,34 @@ export default function App() {
     }
   }, [campaigns, perfRows, tagForecasts, realTags])
 
+  // Optimistically update max leads/day, reverting + surfacing the error on failure.
+  const handleUpdateMaxLeads = useCallback(
+    async (campaignId: number, value: number) => {
+      const prev =
+        campaignsRef.current.find((c) => c.campaignId === campaignId)
+          ?.maxLeadsPerDay ?? null
+      setCampaigns((cs) =>
+        cs.map((c) =>
+          c.campaignId === campaignId ? { ...c, maxLeadsPerDay: value } : c,
+        ),
+      )
+      try {
+        await updateMaxLeadsPerDay('', campaignId, value)
+      } catch (e) {
+        setCampaigns((cs) =>
+          cs.map((c) =>
+            c.campaignId === campaignId ? { ...c, maxLeadsPerDay: prev } : c,
+          ),
+        )
+        setError(
+          `Couldn't update max leads/day for campaign ${campaignId}: ${e instanceof Error ? e.message : String(e)}`,
+        )
+        throw e
+      }
+    },
+    [],
+  )
+
   return (
     <div className="min-h-full">
       <Header
@@ -149,6 +187,7 @@ export default function App() {
           rows={perfRows}
           tagOptions={tagOptions}
           loading={loading}
+          onUpdateMaxLeads={handleUpdateMaxLeads}
         />
 
         {rawSample != null && (

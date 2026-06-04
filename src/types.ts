@@ -113,6 +113,8 @@ export interface Campaign {
   totalCount: number
   draftedCount: number
   status: string
+  /** Schedule cap: max new leads contacted per day. null = unknown/not loaded. */
+  maxLeadsPerDay: number | null
   leadStats: CampaignLeadStats
 }
 
@@ -168,6 +170,7 @@ export interface CampaignPerformance {
   /** interested ÷ sent × 100 (per-email basis). */
   leadRate: number
   bounced: number
+  maxLeadsPerDay: number | null
 }
 
 /** campaign_id (string) -> tag_name */

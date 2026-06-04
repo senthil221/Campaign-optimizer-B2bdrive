@@ -1,26 +1,98 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CampaignPerformance } from '../types'
 
 interface Props {
   rows: CampaignPerformance[]
   tagOptions: string[]
   loading: boolean
+  onUpdateMaxLeads: (campaignId: number, value: number) => Promise<void>
 }
 
 const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
 
 const TH = 'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint whitespace-nowrap align-middle'
-const TD = 'px-4 py-2.5 whitespace-nowrap align-middle tnum tabular-nums'
+const TD = 'px-4 py-2 whitespace-nowrap align-middle tnum tabular-nums'
 
 const inputCls =
   'h-9 rounded-xl border border-line bg-base px-3 text-sm text-ink placeholder:text-faint outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25'
 
 const UNMAPPED = '__unmapped__'
 
-export default function CampaignPerformanceTable({ rows, tagOptions, loading }: Props) {
+// Inline editor for max new leads/day. Commits on Enter or blur.
+function MaxLeadsCell({
+  id,
+  value,
+  onUpdate,
+}: {
+  id: number
+  value: number | null
+  onUpdate: (id: number, value: number) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(value == null ? '' : String(value))
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  useEffect(() => {
+    setDraft(value == null ? '' : String(value))
+  }, [value])
+
+  const commit = async () => {
+    const n = Number(draft)
+    if (draft.trim() === '' || !Number.isFinite(n) || n < 0) {
+      setDraft(value == null ? '' : String(value))
+      return
+    }
+    if (value != null && n === value) return
+    setState('saving')
+    try {
+      await onUpdate(id, Math.round(n))
+      setState('saved')
+      setTimeout(() => setState('idle'), 1400)
+    } catch {
+      setState('error')
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      <input
+        type="number"
+        min={0}
+        value={draft}
+        placeholder="—"
+        onChange={(e) => {
+          setDraft(e.target.value)
+          if (state !== 'idle') setState('idle')
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+        onBlur={commit}
+        className={`tnum h-7 w-[68px] rounded-md border bg-base px-2 text-right text-xs text-ink outline-none transition placeholder:text-faint focus:border-lime/50 focus:ring-1 focus:ring-lime/25 ${
+          state === 'error' ? 'border-critical/60' : 'border-line'
+        }`}
+      />
+      <span className="w-3 text-center text-xs leading-none">
+        {state === 'saving' && <span className="inline-block animate-spin text-faint">↻</span>}
+        {state === 'saved' && <span className="text-positive">✓</span>}
+        {state === 'error' && (
+          <span className="text-critical" title="Save failed — try again">
+            !
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+export default function CampaignPerformanceTable({
+  rows,
+  tagOptions,
+  loading,
+  onUpdateMaxLeads,
+}: Props) {
   const [search, setSearch] = useState('')
-  const [tagFilter, setTagFilter] = useState('') // '' = all, UNMAPPED, or a tag
+  const [tagFilter, setTagFilter] = useState('')
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -87,7 +159,8 @@ export default function CampaignPerformanceTable({ rows, tagOptions, loading }: 
               <th className={`${TH} text-right`}>OOO</th>
               <th className={`${TH} text-right`}>Positive</th>
               <th className={`${TH} text-right`}>Lead Rate</th>
-              <th className={`${TH} pr-5 text-right`}>Bounced</th>
+              <th className={`${TH} text-right`}>Bounced</th>
+              <th className={`${TH} border-l border-line pr-5 text-right`}>Max&nbsp;leads/day</th>
             </tr>
           </thead>
           <tbody>
@@ -95,7 +168,7 @@ export default function CampaignPerformanceTable({ rows, tagOptions, loading }: 
               rows.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-b border-line-soft">
-                  <td colSpan={8} className="px-4 py-3">
+                  <td colSpan={9} className="px-4 py-3">
                     <div className="h-4 w-full animate-pulse rounded bg-white/5" />
                   </td>
                 </tr>
@@ -103,7 +176,7 @@ export default function CampaignPerformanceTable({ rows, tagOptions, loading }: 
 
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-14 text-center text-sm text-faint">
+                <td colSpan={9} className="px-4 py-14 text-center text-sm text-faint">
                   No campaigns match the current filter.
                 </td>
               </tr>
@@ -117,12 +190,12 @@ export default function CampaignPerformanceTable({ rows, tagOptions, loading }: 
                   className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.022]"
                 >
                   <td
-                    className="max-w-[300px] truncate px-4 py-2.5 pl-5 align-middle font-medium text-ink"
+                    className="max-w-[300px] truncate px-4 py-2 pl-5 align-middle font-medium text-ink"
                     title={`${c.campaignName} · #${c.campaignId}`}
                   >
                     {c.campaignName}
                   </td>
-                  <td className="px-4 py-2.5 align-middle">
+                  <td className="px-4 py-2 align-middle">
                     {r.tagName ? (
                       <span className="inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-md border border-line bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-muted">
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime/70" />
@@ -149,10 +222,17 @@ export default function CampaignPerformanceTable({ rows, tagOptions, loading }: 
                       {pct(r.leadRate)}
                     </span>
                   </td>
-                  <td className={`${TD} pr-5 text-right ${
+                  <td className={`${TD} text-right ${
                     r.bounced > 0 ? 'text-critical' : 'text-faint'
                   }`}>
                     {fmt(r.bounced)}
+                  </td>
+                  <td className="border-l border-line px-4 py-2 pr-5 align-middle">
+                    <MaxLeadsCell
+                      id={c.campaignId}
+                      value={r.maxLeadsPerDay}
+                      onUpdate={onUpdateMaxLeads}
+                    />
                   </td>
                 </tr>
               )

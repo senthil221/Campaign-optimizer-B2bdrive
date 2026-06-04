@@ -14,6 +14,7 @@ import { num } from '../utils/campaignCalculations'
 const EMAIL_ACCOUNTS_URL = '/api/email-accounts'
 const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
+const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -172,6 +173,7 @@ export function normalizeCampaign(
     totalCount: num(raw?.total_count, 0),
     draftedCount: num(raw?.drafted_count, 0),
     status: String(nameInfo?.status ?? raw?.status ?? ''),
+    maxLeadsPerDay: null, // filled in by fetchCampaignSchedules()
     leadStats: {
       total: num(stats?.total, 0),
       completed: num(stats?.completed, 0),
@@ -379,6 +381,79 @@ export async function fetchCampaignAnalytics(
 }
 
 // ---------------------------------------------------------------------------
+// Schedule cap (max new leads / day) — Smartlead GraphQL via the proxy
+// ---------------------------------------------------------------------------
+
+/** id -> max_leads_per_day for the given campaign ids (one batched read). */
+export async function fetchCampaignSchedules(
+  jwt: string,
+  ids: number[],
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>()
+  if (ids.length === 0) return out
+
+  for (const batch of chunk(ids, 200)) {
+    const res = await fetch(`${CAMPAIGN_SCHEDULE_URL}?ids=${batch.join(',')}`, {
+      method: 'GET',
+      headers: authHeaders(jwt),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(
+        `Schedule request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+      )
+    }
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(`Schedule response was not JSON. Response: ${preview(text)}`)
+    }
+    const obj = json as Record<string, unknown>
+    if (Array.isArray(obj?.errors) && obj.errors.length) {
+      throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
+    }
+    const rows = extractArray(json, ['email_campaigns'])
+    if (!rows) continue
+    for (const r of rows) {
+      const o = (r ?? {}) as Record<string, unknown>
+      const id = num(o.id, 0)
+      if (id) out.set(id, num(o.max_leads_per_day, 0))
+    }
+  }
+  return out
+}
+
+/** Update only max_leads_per_day for one campaign (Hasura partial _set). */
+export async function updateMaxLeadsPerDay(
+  jwt: string,
+  id: number,
+  value: number,
+): Promise<void> {
+  const res = await fetch(CAMPAIGN_SCHEDULE_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ id, maxLeadsPerDay: value }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Update response was not JSON. Response: ${preview(text)}`)
+  }
+  const obj = json as Record<string, unknown>
+  if (Array.isArray(obj?.errors) && obj.errors.length) {
+    throw new Error(`Smartlead rejected the update: ${preview(obj.errors)}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator: list -> analytics -> joined campaigns
 // ---------------------------------------------------------------------------
 
@@ -456,6 +531,19 @@ export async function loadCampaigns(
   if (taggedCount === 0) {
     warnings.push(
       'No campaign tags were found in the campaign-list response. Auto-mapping is off — map tags manually, and check the debug drawer to find the tag field name.',
+    )
+  }
+
+  // 4) Schedule caps (max new leads / day) — best-effort, never fatal.
+  try {
+    const scheduleMap = await fetchCampaignSchedules(jwt, ids)
+    for (const c of campaigns) {
+      const v = scheduleMap.get(c.campaignId)
+      if (v !== undefined) c.maxLeadsPerDay = v
+    }
+  } catch (e) {
+    warnings.push(
+      `Could not load max-leads/day from the schedule: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
 

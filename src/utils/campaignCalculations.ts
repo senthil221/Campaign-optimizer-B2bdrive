@@ -325,6 +325,7 @@ export function buildCampaignPerformance(
         interested,
         leadRate: Math.round(safeDivide(interested, c.sentCount) * 100 * 100) / 100,
         bounced: c.bounceCount,
+        maxLeadsPerDay: c.maxLeadsPerDay,
       }
     })
     .sort((a, b) => b.sent - a.sent)
