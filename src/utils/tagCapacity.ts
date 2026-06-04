@@ -12,6 +12,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     accountCount: number
     totalDailyVolume: number
     usedToday: number
+    disconnects: number
     reputationSum: number
     reputationCount: number
   }
@@ -27,6 +28,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         accountCount: 0,
         totalDailyVolume: 0,
         usedToday: 0,
+        disconnects: 0,
         reputationSum: 0,
         reputationCount: 0,
       }
@@ -50,6 +52,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
       entry.accountCount += 1
       entry.totalDailyVolume += account.messagePerDay
       entry.usedToday += account.dailySentCount
+      if (!account.connected) entry.disconnects += 1
       if (account.warmupReputation > 0) {
         entry.reputationSum += account.warmupReputation
         entry.reputationCount += 1
@@ -65,6 +68,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
       totalDailyVolume: e.totalDailyVolume,
       usedToday: e.usedToday,
       remainingToday: e.totalDailyVolume - e.usedToday,
+      disconnects: e.disconnects,
       avgWarmupReputation:
         e.reputationCount > 0
           ? Math.round((e.reputationSum / e.reputationCount) * 10) / 10

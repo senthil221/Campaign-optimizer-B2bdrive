@@ -89,6 +89,10 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
 
   const warmup = raw?.email_warmup_details ?? {}
 
+  // Treat an account as disconnected only when Smartlead explicitly reports a
+  // failed SMTP/IMAP handshake. Absent fields are assumed connected.
+  const connected = raw?.is_smtp_success !== false && raw?.is_imap_success !== false
+
   return {
     id: num(raw?.id, 0),
     fromEmail: String(raw?.from_email ?? ''),
@@ -96,6 +100,7 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
     dailySentCount: num(raw?.daily_sent_count, 0),
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
+    connected,
     tagIds,
     tagNames,
   }

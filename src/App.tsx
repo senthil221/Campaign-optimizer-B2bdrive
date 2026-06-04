@@ -111,18 +111,6 @@ export default function App() {
     })
   }, [])
 
-  const handleBulkAssign = useCallback(
-    (campaignIds: number[], tagName: string) => {
-      if (!tagName) return
-      setTagMap((prev) => {
-        const next = { ...prev }
-        for (const id of campaignIds) next[String(id)] = tagName
-        return next
-      })
-    },
-    [],
-  )
-
   return (
     <div className="min-h-full">
       <Header
@@ -193,7 +181,6 @@ export default function App() {
           tagOptions={tagOptions}
           loading={loading}
           onMapChange={handleMapChange}
-          onBulkAssign={handleBulkAssign}
         />
 
         {rawSample != null && (

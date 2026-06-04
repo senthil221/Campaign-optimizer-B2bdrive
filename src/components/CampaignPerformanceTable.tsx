@@ -6,134 +6,77 @@ interface Props {
   tagOptions: string[]
   loading: boolean
   onMapChange: (campaignId: number, tagName: string) => void
-  onBulkAssign: (campaignIds: number[], tagName: string) => void
 }
 
 const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
 
-const TH = 'px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint whitespace-nowrap'
-const TD = 'px-4 py-2.5 whitespace-nowrap'
+const TH = 'px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-faint whitespace-nowrap'
+const TD = 'px-4 py-2 whitespace-nowrap'
 
 const inputCls =
   'h-9 rounded-lg border border-line bg-base px-3 text-sm text-ink placeholder:text-faint outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/30'
+
+const UNMAPPED = '__unmapped__'
 
 export default function CampaignPerformanceTable({
   rows,
   tagOptions,
   loading,
   onMapChange,
-  onBulkAssign,
 }: Props) {
   const [search, setSearch] = useState('')
-  const [unmappedOnly, setUnmappedOnly] = useState(false)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [bulkTag, setBulkTag] = useState('')
+  const [tagFilter, setTagFilter] = useState('') // '' = all, UNMAPPED, or a tag
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter((r) => {
-      if (unmappedOnly && r.tagName) return false
+      if (tagFilter === UNMAPPED && r.tagName) return false
+      if (tagFilter && tagFilter !== UNMAPPED && r.tagName !== tagFilter) return false
       if (!q) return true
       return (
         r.campaign.campaignName.toLowerCase().includes(q) ||
         String(r.campaign.campaignId).includes(q)
       )
     })
-  }, [rows, search, unmappedOnly])
-
-  const allVisibleSelected =
-    filtered.length > 0 &&
-    filtered.every((r) => selected.has(r.campaign.campaignId))
-
-  function toggle(id: number) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  function toggleAllVisible() {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (allVisibleSelected)
-        filtered.forEach((r) => next.delete(r.campaign.campaignId))
-      else filtered.forEach((r) => next.add(r.campaign.campaignId))
-      return next
-    })
-  }
-
-  function applyBulk() {
-    if (!bulkTag || selected.size === 0) return
-    onBulkAssign(Array.from(selected), bulkTag)
-    setSelected(new Set())
-    setBulkTag('')
-  }
+  }, [rows, search, tagFilter])
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-6 py-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="h-4 w-1 rounded-full bg-lime" />
-            <h2 className="font-display text-2xl leading-none tracking-tight text-ink">
-              Campaign Performance
-            </h2>
-          </div>
-          <p className="mt-2 text-[13px] text-muted">
-            <span className="text-ink">Lead Rate</span> = Interested ÷ Sent × 100.
-            Assign a tag to feed the forecast above.
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="h-3.5 w-1 rounded-full bg-lime" />
+          <h2 className="font-display text-xl leading-none tracking-tight text-ink">
+            Campaign Performance
+          </h2>
+          <span className="text-xs text-faint">· Lead Rate = Interested ÷ Sent</span>
         </div>
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-6 py-3.5">
+      <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search campaign or ID…"
-          className={`${inputCls} w-60`}
+          className={`${inputCls} w-56`}
         />
-
-        <button
-          onClick={() => setUnmappedOnly((v) => !v)}
-          className={`h-9 rounded-lg border px-3 text-xs font-medium transition ${
-            unmappedOnly
-              ? 'border-warn/40 bg-warn/10 text-warn'
-              : 'border-line bg-base text-muted hover:text-ink'
-          }`}
+        <select
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          className={`${inputCls} w-48`}
         >
-          Unmapped only
-        </button>
-
-        <div className="ml-auto flex items-center gap-2.5">
-          <span className="tnum text-xs text-faint">
-            {selected.size > 0
-              ? `${selected.size} selected`
-              : `${filtered.length} shown`}
-          </span>
-          <select
-            value={bulkTag}
-            onChange={(e) => setBulkTag(e.target.value)}
-            className={`${inputCls} w-44`}
-          >
-            <option value="">Bulk assign tag…</option>
-            {tagOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={applyBulk}
-            disabled={!bulkTag || selected.size === 0}
-            className="h-9 rounded-lg bg-lime px-4 text-sm font-semibold text-base transition hover:bg-lime-dim disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Apply
-          </button>
-        </div>
+          <option value="">All tags</option>
+          {tagOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+          <option value={UNMAPPED}>— Unmapped —</option>
+        </select>
+        <span className="ml-auto tnum text-xs text-faint">
+          {filtered.length} of {rows.length}
+        </span>
       </div>
 
       {/* Table */}
@@ -141,15 +84,6 @@ export default function CampaignPerformanceTable({
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-panel-2">
             <tr className="border-b border-line">
-              <th className="w-10 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleAllVisible}
-                  className="h-3.5 w-3.5 accent-lime"
-                  title="Select visible"
-                />
-              </th>
               <th className={`${TH} text-left`}>Campaign</th>
               <th className={`${TH} text-left`}>Tag</th>
               <th className={`${TH} text-right`}>Sent</th>
@@ -165,7 +99,7 @@ export default function CampaignPerformanceTable({
               rows.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-b border-line-soft">
-                  <td colSpan={9} className="px-4 py-3">
+                  <td colSpan={8} className="px-4 py-2.5">
                     <div className="h-4 w-full animate-pulse rounded bg-white/5" />
                   </td>
                 </tr>
@@ -173,7 +107,7 @@ export default function CampaignPerformanceTable({
 
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-16 text-center text-sm text-faint">
+                <td colSpan={8} className="px-4 py-14 text-center text-sm text-faint">
                   No campaigns match the current filter.
                 </td>
               </tr>
@@ -181,22 +115,13 @@ export default function CampaignPerformanceTable({
 
             {filtered.map((r) => {
               const c = r.campaign
-              const isSel = selected.has(c.campaignId)
               return (
                 <tr
                   key={c.campaignId}
                   className={`border-b border-line-soft transition last:border-0 hover:bg-white/[0.025] ${
-                    isSel ? 'bg-lime/[0.06]' : !r.tagName ? 'bg-warn/[0.03]' : ''
+                    r.tagName ? '' : 'bg-warn/[0.03]'
                   }`}
                 >
-                  <td className="px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={isSel}
-                      onChange={() => toggle(c.campaignId)}
-                      className="h-3.5 w-3.5 accent-lime"
-                    />
-                  </td>
                   <td
                     className={`${TD} max-w-[280px] truncate font-medium text-ink`}
                     title={`${c.campaignName} · #${c.campaignId}`}
@@ -241,9 +166,7 @@ export default function CampaignPerformanceTable({
                   <td className={`${TD} text-right`}>
                     <span
                       className={`tnum inline-flex min-w-[58px] justify-end rounded-md px-2 py-0.5 font-mono text-xs ${
-                        r.leadRate > 0
-                          ? 'bg-positive/10 text-positive'
-                          : 'text-faint'
+                        r.leadRate > 0 ? 'bg-positive/10 text-positive' : 'text-faint'
                       }`}
                     >
                       {pct(r.leadRate)}

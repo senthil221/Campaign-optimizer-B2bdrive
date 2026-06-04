@@ -21,6 +21,8 @@ export interface RawEmailAccount {
   from_email?: string | null
   message_per_day?: number | null
   daily_sent_count?: number | null
+  is_smtp_success?: boolean | null
+  is_imap_success?: boolean | null
   email_warmup_details?: RawWarmupDetails | null
   email_account_tag_mappings?: RawTagMapping[] | null
 }
@@ -68,6 +70,8 @@ export interface EmailAccount {
   dailySentCount: number
   warmupStatus: string
   warmupReputation: number
+  /** False when Smartlead reports an SMTP/IMAP connection failure. */
+  connected: boolean
   tagIds: number[]
   tagNames: string[]
 }
@@ -80,6 +84,8 @@ export interface TagVolume {
   usedToday: number
   remainingToday: number
   avgWarmupReputation: number
+  /** Accounts under this tag with a reported connection failure. */
+  disconnects: number
 }
 
 export interface CampaignLeadStats {
