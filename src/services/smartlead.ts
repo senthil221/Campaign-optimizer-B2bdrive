@@ -249,21 +249,6 @@ async function fetchEmailAccountsByUsage(
     const rows = extractArray(json, ['email_accounts'])
     if (!rows || rows.length === 0) break
 
-    // TEMP DIAGNOSTIC: dump the first raw account so we can see whether the
-    // endpoint actually returns is_in_use / daily_sent_count, and what the
-    // isInUse param does. Remove once idle/used-today are confirmed.
-    if (page === 0) {
-      const sample = rows[0] as Record<string, unknown>
-      console.log(`[email-accounts ${label}] first raw row:`, sample)
-      console.log(`[email-accounts ${label}] keys:`, Object.keys(sample ?? {}))
-      const inUseVals = rows.map((r) => (r as RawEmailAccount)?.is_in_use)
-      console.log(`[email-accounts ${label}] is_in_use distribution (page 1):`, {
-        true: inUseVals.filter((v) => v === true).length,
-        false: inUseVals.filter((v) => v === false).length,
-        undefined: inUseVals.filter((v) => v == null).length,
-      })
-    }
-
     for (const row of rows) {
       all.push(normalizeEmailAccount(row as RawEmailAccount, inUse))
     }

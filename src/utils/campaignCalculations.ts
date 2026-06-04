@@ -291,6 +291,11 @@ export function buildTagForecasts(
         totalDailyVolume: t.totalDailyVolume,
         sharedTagDaysLeft,
       })
+      // Idle = the tag is connected to no campaign, so every connected inbox
+      // under it is sitting unused. Derived from the tag→campaign join rather
+      // than the unreliable per-account is_in_use flag.
+      const idle = mappedCampaigns === 0
+      const connectedCount = Math.max(0, t.accountCount - t.disconnects)
       return {
         ...t,
         mappedCampaigns,
@@ -299,6 +304,8 @@ export function buildTagForecasts(
         sharedTagDemand,
         sharedTagDaysLeft,
         status,
+        idleVolume: idle ? t.totalDailyVolume : 0,
+        idleCount: idle ? connectedCount : 0,
       }
     })
     .sort((a, b) => b.totalDailyVolume - a.totalDailyVolume)

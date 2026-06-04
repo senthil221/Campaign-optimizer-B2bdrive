@@ -5,8 +5,9 @@ import type { EmailAccount, TagVolume } from '../types'
  * An account carrying multiple tags contributes to each of its tags.
  * Accounts with no tag are grouped under a synthetic "Untagged" bucket.
  *
- * "Idle" = inbox has a tag but is NOT assigned to any campaign (isInUse=false).
- * idleVolume lets you spot sending capacity that is going to waste.
+ * Volume here is raw sending capacity. Whether a tag's inboxes are actually
+ * *used* (the tag is mapped to a campaign) or *idle* (no campaign) is decided
+ * later in buildTagForecasts, which is where the tag→campaign join lives.
  */
 export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
   interface Acc {
@@ -18,8 +19,6 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     disconnects: number
     reputationSum: number
     reputationCount: number
-    idleVolume: number
-    idleCount: number
   }
 
   const map = new Map<string, Acc>()
@@ -36,8 +35,6 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         disconnects: 0,
         reputationSum: 0,
         reputationCount: 0,
-        idleVolume: 0,
-        idleCount: 0,
       }
       map.set(tagName, entry)
     }
@@ -64,14 +61,8 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         continue
       }
 
-      // Idle inbox: tagged but not assigned to any campaign.
-      if (!account.isInUse) {
-        entry.idleVolume += account.messagePerDay
-        entry.idleCount += 1
-        continue // don't count toward active sending volume or reputation
-      }
-
-      // Active inbox: in a campaign and connected.
+      // Connected inbox: contributes sending capacity. The idle/used split is
+      // applied later from the tag→campaign mapping (buildTagForecasts).
       entry.totalDailyVolume += account.messagePerDay
       entry.usedToday += account.dailySentCount
       if (account.warmupReputation > 0) {
@@ -94,8 +85,9 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         e.reputationCount > 0
           ? Math.round((e.reputationSum / e.reputationCount) * 10) / 10
           : 0,
-      idleVolume: e.idleVolume,
-      idleCount: e.idleCount,
+      // Filled in by buildTagForecasts once the tag→campaign join is known.
+      idleVolume: 0,
+      idleCount: 0,
     }))
     .sort((a, b) => b.totalDailyVolume - a.totalDailyVolume)
 }
