@@ -38,9 +38,6 @@ export default function Header({
             <h1 className="font-display text-[18px] font-semibold leading-none tracking-[-0.01em] text-ink">
               Campaign Optimizer
             </h1>
-            <p className="mt-1 text-[11px] font-medium text-muted">
-              Tag depletion &amp; campaign performance
-            </p>
           </div>
         </div>
 
