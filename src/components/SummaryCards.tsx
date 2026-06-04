@@ -7,36 +7,43 @@ interface Props {
   loading?: boolean
 }
 
-function Card({
+type Tone = 'default' | 'lime' | 'critical' | 'warn'
+
+function Stat({
   label,
   value,
   tone = 'default',
   loading,
 }: {
   label: string
-  value: string | number
-  tone?: 'default' | 'danger' | 'warning' | 'neutral'
+  value: number
+  tone?: Tone
   loading?: boolean
 }) {
-  const valueTone =
-    tone === 'danger'
-      ? 'text-red-600'
-      : tone === 'warning'
-        ? 'text-amber-600'
-        : tone === 'neutral'
-          ? 'text-slate-500'
-          : 'text-slate-900'
+  const color =
+    tone === 'lime'
+      ? 'text-lime'
+      : tone === 'critical'
+        ? value > 0
+          ? 'text-critical'
+          : 'text-faint'
+        : tone === 'warn'
+          ? value > 0
+            ? 'text-warn'
+            : 'text-faint'
+          : 'text-ink'
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+    <div className="flex flex-col gap-1.5 px-5 py-4 lg:px-6">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
         {label}
-      </div>
+      </span>
       {loading ? (
-        <div className="mt-2 h-7 w-14 animate-pulse rounded bg-slate-100" />
+        <div className="h-9 w-16 animate-pulse rounded bg-white/5" />
       ) : (
-        <div className={`mt-1 text-2xl font-semibold tabular-nums ${valueTone}`}>
-          {value}
-        </div>
+        <span className={`tnum font-display text-4xl leading-none ${color}`}>
+          {value.toLocaleString()}
+        </span>
       )}
     </div>
   )
@@ -51,14 +58,15 @@ export default function SummaryCards({
   loading,
 }: Props) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <Card label="Total campaigns" value={totalCampaigns.toLocaleString()} loading={loading} />
-      <Card label="Unmapped" value={unmapped.toLocaleString()} tone="neutral" loading={loading} />
-      <Card label="Critical" value={critical.toLocaleString()} tone="danger" loading={loading} />
-      <Card label="Upload soon" value={uploadSoon.toLocaleString()} tone="warning" loading={loading} />
-      <Card
-        label="Total daily tag volume"
-        value={totalDailyVolume.toLocaleString()}
+    <div className="grid grid-cols-2 divide-x divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-panel sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
+      <Stat label="Campaigns" value={totalCampaigns} loading={loading} />
+      <Stat label="Unmapped" value={unmapped} loading={loading} />
+      <Stat label="Critical tags" value={critical} tone="critical" loading={loading} />
+      <Stat label="Upload soon" value={uploadSoon} tone="warn" loading={loading} />
+      <Stat
+        label="Daily send volume"
+        value={totalDailyVolume}
+        tone="lime"
         loading={loading}
       />
     </div>

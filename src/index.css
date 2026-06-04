@@ -10,6 +10,73 @@ body,
 
 body {
   margin: 0;
-  background-color: #f1f5f9;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #ecedee;
+  background-color: #0b0c0e;
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Layered atmosphere: a warm lime glow top-left, a cold pool bottom-right. */
+  background-image:
+    radial-gradient(900px 600px at 8% -10%, rgba(200, 242, 78, 0.06), transparent 60%),
+    radial-gradient(800px 500px at 100% 110%, rgba(90, 130, 200, 0.05), transparent 55%);
+}
+
+/* Fine film grain so flat dark panels read as material, not void.
+   Pre-tiled 120px SVG kept light so it never costs a frame. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 120px 120px;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Tabular figures everywhere numbers live. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+::selection {
+  background: rgba(200, 242, 78, 0.25);
+  color: #fff;
+}
+
+/* Slim, dark scrollbars to match the cockpit. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: content-box;
+}
+
+/* Native form controls inherit the dark theme. */
+input,
+select,
+button {
+  font-family: inherit;
+}
+select option {
+  background: #181b20;
+  color: #ecedee;
 }

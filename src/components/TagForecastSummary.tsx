@@ -1,11 +1,28 @@
-import type { TagForecast } from '../types'
+import type { CampaignStatus, TagForecast } from '../types'
 import StatusBadge from './StatusBadge'
 
 const fmt = (n: number) => n.toLocaleString()
 const daysFmt = (d: number | null) => (d === null ? '—' : String(d))
 
-const TH = 'px-4 py-2.5 font-medium whitespace-nowrap'
-const TD = 'px-4 py-2.5 whitespace-nowrap'
+const TH = 'px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint whitespace-nowrap'
+const TD = 'px-5 py-3.5 whitespace-nowrap'
+
+// Left accent rail colour by urgency.
+const RAIL: Record<CampaignStatus, string> = {
+  critical: 'before:bg-critical',
+  upload_soon: 'before:bg-warn',
+  no_capacity: 'before:bg-orange-400',
+  healthy: 'before:bg-positive/60',
+  unmapped: 'before:bg-transparent',
+  ended: 'before:bg-transparent',
+}
+
+const daysColor = (d: number | null, status: CampaignStatus) => {
+  if (d === null) return 'text-faint'
+  if (status === 'critical') return 'text-critical'
+  if (status === 'upload_soon') return 'text-warn'
+  return 'text-ink'
+}
 
 export default function TagForecastSummary({
   tags,
@@ -16,81 +33,91 @@ export default function TagForecastSummary({
   emailsPerLead: number
   loading: boolean
 }) {
-  // Only tags that actually have campaigns mapped to them are actionable here.
   const rows = tags.filter((t) => t.mappedCampaigns > 0)
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex items-baseline justify-between border-b border-slate-200 px-4 py-3">
+    <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-line px-6 py-5">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            Tag Lead Forecast
-          </h2>
-          <p className="text-xs text-slate-400">
-            Leads remaining per tag — when “Days left” gets low, launch new
-            campaigns on that tag.
+          <div className="flex items-center gap-2.5">
+            <span className="h-4 w-1 rounded-full bg-lime" />
+            <h2 className="font-display text-2xl leading-none tracking-tight text-ink">
+              Tag Lead Forecast
+            </h2>
+          </div>
+          <p className="mt-2 text-[13px] text-muted">
+            Leads remaining per sending tag — when{' '}
+            <span className="text-ink">Days left</span> runs low, launch fresh
+            campaigns on that pool.
           </p>
         </div>
-        <span className="text-xs text-slate-400">
-          Demand = Not started × {emailsPerLead} emails/lead
+        <span className="rounded-full border border-line bg-base px-3 py-1 text-[11px] font-medium text-muted">
+          Demand = Not started × {emailsPerLead}
         </span>
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className="space-y-2 p-4">
+        <div className="space-y-2 p-6">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
+            <div key={i} className="h-8 animate-pulse rounded-lg bg-white/5" />
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <p className="p-6 text-sm text-slate-400">
-          No tags have campaigns mapped yet. Assign tags in the campaign table
-          below.
-        </p>
+        <div className="px-6 py-16 text-center">
+          <p className="font-display text-xl text-muted">No mapped tags yet</p>
+          <p className="mt-1 text-sm text-faint">
+            Assign tags in the campaign table below to populate the forecast.
+          </p>
+        </div>
       ) : (
-        <div className="overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
-            <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 shadow-[0_1px_0_0_rgb(226_232_240)]">
-              <tr>
-                <th className={TH}>Tag</th>
+            <thead>
+              <tr className="border-b border-line">
+                <th className={`${TH} text-left`}>Tag</th>
                 <th className={`${TH} text-right`}>Campaigns</th>
                 <th className={`${TH} text-right`}>Leads</th>
                 <th className={`${TH} text-right`}>Not started</th>
                 <th className={`${TH} text-right`}>Demand</th>
-                <th className={`${TH} text-right`}>Daily volume</th>
+                <th className={`${TH} text-right`}>Daily vol</th>
                 <th className={`${TH} text-right`}>Days left</th>
-                <th className={TH}>Status</th>
+                <th className={`${TH} text-left`}>Status</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((t) => (
                 <tr
                   key={t.tagName}
-                  className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80"
+                  className={`group relative border-b border-line-soft transition last:border-0 hover:bg-white/[0.025] before:absolute before:left-0 before:top-0 before:h-full before:w-[3px] ${RAIL[t.status]}`}
                 >
                   <td
-                    className={`${TD} max-w-[220px] truncate font-medium text-slate-800`}
+                    className={`${TD} max-w-[260px] truncate pl-6 font-medium text-ink`}
                     title={t.tagName}
                   >
                     {t.tagName}
                   </td>
-                  <td className={`${TD} text-right tabular-nums text-slate-500`}>
+                  <td className={`${TD} tnum text-right font-mono text-muted`}>
                     {t.mappedCampaigns}
                   </td>
-                  <td className={`${TD} text-right tabular-nums text-slate-700`}>
+                  <td className={`${TD} tnum text-right font-mono text-ink`}>
                     {fmt(t.leadsTotal)}
                   </td>
-                  <td className={`${TD} text-right font-semibold tabular-nums`}>
+                  <td className={`${TD} tnum text-right font-mono font-semibold text-ink`}>
                     {fmt(t.notStartedTotal)}
                   </td>
-                  <td className={`${TD} text-right tabular-nums text-slate-600`}>
+                  <td className={`${TD} tnum text-right font-mono text-muted`}>
                     {fmt(t.sharedTagDemand)}
                   </td>
-                  <td className={`${TD} text-right tabular-nums text-slate-600`}>
+                  <td className={`${TD} tnum text-right font-mono text-muted`}>
                     {fmt(t.totalDailyVolume)}
                   </td>
                   <td className={`${TD} text-right`}>
-                    <span className="text-base font-bold tabular-nums text-slate-900">
+                    <span
+                      className={`tnum font-display text-3xl leading-none ${daysColor(
+                        t.sharedTagDaysLeft,
+                        t.status,
+                      )}`}
+                    >
                       {daysFmt(t.sharedTagDaysLeft)}
                     </span>
                   </td>

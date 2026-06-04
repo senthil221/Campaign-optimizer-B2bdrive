@@ -124,7 +124,7 @@ export default function App() {
   )
 
   return (
-    <div className="min-h-full bg-[#f6f8fb]">
+    <div className="min-h-full">
       <Header
         loading={loading}
         lastUpdated={lastUpdated}
@@ -133,16 +133,19 @@ export default function App() {
         onRefresh={refresh}
       />
 
-      <main className="mx-auto max-w-[1600px] space-y-4 px-6 py-5">
+      <main className="mx-auto max-w-[1440px] space-y-5 px-6 py-7 lg:px-10">
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            <span className="font-semibold">Failed to load data.</span>{' '}
-            <span className="break-words">{error}</span>
+          <div className="flex gap-3 rounded-xl border border-critical/30 bg-critical/10 px-4 py-3 text-sm text-critical">
+            <span className="mt-0.5 select-none">●</span>
+            <span>
+              <span className="font-semibold">Failed to load data.</span>{' '}
+              <span className="break-words text-critical/80">{error}</span>
+            </span>
           </div>
         )}
 
         {warnings.length > 0 && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          <div className="rounded-xl border border-warn/25 bg-warn/[0.07] px-4 py-2.5 text-xs text-warn/90">
             {warnings.map((w, i) => (
               <div key={i} className="break-words">
                 {w}
@@ -160,23 +163,22 @@ export default function App() {
           loading={loading}
         />
 
-        {autoMappedCount > 0 && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-            <span className="font-semibold">
-              {autoMappedCount.toLocaleString()} campaign
-              {autoMappedCount === 1 ? '' : 's'} auto-mapped
-            </span>{' '}
-            from their Smartlead tags. Override any row with the inline dropdown.
-          </div>
-        )}
-
-        {kpis.unmapped > 0 && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800">
-            <span className="font-semibold">
-              {kpis.unmapped.toLocaleString()} campaign
-              {kpis.unmapped === 1 ? '' : 's'} need tag mapping.
-            </span>{' '}
-            Assign a tag inline in each row, or select rows and bulk assign.
+        {(autoMappedCount > 0 || kpis.unmapped > 0) && (
+          <div className="flex flex-wrap gap-2 text-[13px]">
+            {autoMappedCount > 0 && (
+              <span className="inline-flex items-center gap-2 rounded-full border border-positive/25 bg-positive/[0.08] px-3.5 py-1.5 text-positive">
+                <span className="h-1.5 w-1.5 rounded-full bg-positive" />
+                <span className="font-semibold tnum">{autoMappedCount.toLocaleString()}</span>
+                auto-mapped from Smartlead tags
+              </span>
+            )}
+            {kpis.unmapped > 0 && (
+              <span className="inline-flex items-center gap-2 rounded-full border border-warn/25 bg-warn/[0.08] px-3.5 py-1.5 text-warn">
+                <span className="h-1.5 w-1.5 rounded-full bg-warn" />
+                <span className="font-semibold tnum">{kpis.unmapped.toLocaleString()}</span>
+                need a tag — assign below to forecast
+              </span>
+            )}
           </div>
         )}
 
@@ -195,11 +197,11 @@ export default function App() {
         />
 
         {rawSample != null && (
-          <details className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
-            <summary className="cursor-pointer select-none font-medium text-slate-600">
-              Debug · raw campaign sample (use this to find Smartlead's tag field)
+          <details className="rounded-xl border border-line bg-panel px-4 py-2.5 text-xs text-muted">
+            <summary className="cursor-pointer select-none font-medium text-faint transition hover:text-muted">
+              Debug · raw campaign sample (find Smartlead's tag field)
             </summary>
-            <pre className="mt-2 max-h-72 overflow-auto rounded bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
+            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line-soft bg-base p-3 font-mono text-[11px] leading-relaxed text-muted">
               {JSON.stringify(rawSample, null, 2)}
             </pre>
           </details>
