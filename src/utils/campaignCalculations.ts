@@ -313,18 +313,28 @@ export function buildCampaignPerformance(
   tagMap: CampaignTagMap,
   availableTags: string[] = [],
 ): CampaignPerformance[] {
+  const rate = (n: number, d: number) =>
+    Math.round(safeDivide(n, d) * 100 * 100) / 100
+
   return campaigns
     .map((c) => {
       const interested = c.leadStats.interested
+      const positiveRate = rate(interested, c.sentCount)
       return {
         campaign: c,
         tagName: resolveTagName(c, tagMap, availableTags),
+        status: c.status,
+        progressPercent: progressPercent(c),
         sent: c.sentCount,
         replied: c.replyCount,
+        repliedRate: rate(c.replyCount, c.sentCount),
         oooReplied: c.oooReplyCount,
+        oooRate: rate(c.oooReplyCount, c.sentCount),
         interested,
-        leadRate: Math.round(safeDivide(interested, c.sentCount) * 100 * 100) / 100,
+        positiveRate,
+        leadRate: positiveRate,
         bounced: c.bounceCount,
+        bounceRate: rate(c.bounceCount, c.sentCount),
         maxLeadsPerDay: c.maxLeadsPerDay,
       }
     })

@@ -17,6 +17,7 @@ const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
+const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -452,6 +453,45 @@ export async function updateMaxLeadsPerDay(
   const obj = json as Record<string, unknown>
   if (Array.isArray(obj?.errors) && obj.errors.length) {
     throw new Error(`Smartlead rejected the update: ${preview(obj.errors)}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Campaign status (pause / resume / stop)
+// ---------------------------------------------------------------------------
+
+/** Smartlead status values the API accepts. START resumes a paused campaign. */
+export type CampaignStatusAction = 'START' | 'PAUSED' | 'STOPPED'
+
+/** Pause, resume (START), or stop a single campaign. */
+export async function updateCampaignStatus(
+  jwt: string,
+  apiKey: string,
+  id: number,
+  status: CampaignStatusAction,
+): Promise<void> {
+  const res = await fetch(CAMPAIGN_STATUS_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt, apiKey),
+    body: JSON.stringify({ id, status }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Status update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Status response was not JSON. Response: ${preview(text)}`)
+  }
+  const obj = json as Record<string, unknown>
+  // Smartlead returns { ok: true } / { message: "..." }; treat an explicit
+  // error field (or GraphQL-style errors array) as a failure.
+  if (obj?.error || (Array.isArray(obj?.errors) && obj.errors.length)) {
+    throw new Error(`Smartlead rejected the status change: ${preview(json)}`)
   }
 }
 

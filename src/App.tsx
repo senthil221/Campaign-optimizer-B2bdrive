@@ -4,18 +4,34 @@ import {
   fetchCampaignSequences,
   fetchEmailAccounts,
   loadCampaigns,
+  updateCampaignStatus,
   updateMaxLeadsPerDay,
+  type CampaignStatusAction,
 } from './services/smartlead'
 import {
   buildCampaignPerformance,
   buildTagForecasts,
 } from './utils/campaignCalculations'
 import { buildTagVolumes } from './utils/tagCapacity'
-import { loadEmailsPerLead, loadTagMap, saveEmailsPerLead } from './utils/storage'
+import {
+  loadEmailsPerLead,
+  loadTagMap,
+  loadVisibleColumns,
+  saveEmailsPerLead,
+  saveVisibleColumns,
+} from './utils/storage'
 import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
 import TagForecastSummary from './components/TagForecastSummary'
-import CampaignPerformanceTable from './components/CampaignPerformanceTable'
+import CampaignPerformanceTable, {
+  PERF_COLUMNS,
+} from './components/CampaignPerformanceTable'
+
+// Default: every column visible. Stored prefs are merged over this so a newly
+// added column shows up by default for existing users.
+const DEFAULT_COLUMNS: Record<string, boolean> = Object.fromEntries(
+  PERF_COLUMNS.map((c) => [c.id, true]),
+)
 
 export default function App() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
@@ -24,6 +40,10 @@ export default function App() {
   // in localStorage are still honoured, but the UI no longer edits them.
   const [tagMap] = useState<CampaignTagMap>(loadTagMap)
   const [emailsPerLead, setEmailsPerLead] = useState<number>(loadEmailsPerLead)
+  const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>(() => ({
+    ...DEFAULT_COLUMNS,
+    ...loadVisibleColumns(),
+  }))
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +58,7 @@ export default function App() {
 
   // Persist user settings
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
+  useEffect(() => saveVisibleColumns(visibleCols), [visibleCols])
 
   // Credentials are injected server-side by the /api proxy → empty strings here.
   const refresh = useCallback(async () => {
@@ -126,6 +147,35 @@ export default function App() {
     [],
   )
 
+  // Optimistically pause/resume a campaign, reverting + surfacing errors on failure.
+  const handleUpdateStatus = useCallback(
+    async (campaignId: number, action: CampaignStatusAction) => {
+      const prev =
+        campaignsRef.current.find((c) => c.campaignId === campaignId)?.status ?? ''
+      // START resumes to ACTIVE; the others map straight through.
+      const next = action === 'START' ? 'ACTIVE' : action
+      setCampaigns((cs) =>
+        cs.map((c) =>
+          c.campaignId === campaignId ? { ...c, status: next } : c,
+        ),
+      )
+      try {
+        await updateCampaignStatus('', '', campaignId, action)
+      } catch (e) {
+        setCampaigns((cs) =>
+          cs.map((c) =>
+            c.campaignId === campaignId ? { ...c, status: prev } : c,
+          ),
+        )
+        setError(
+          `Couldn't ${action === 'PAUSED' ? 'pause' : action === 'START' ? 'resume' : 'stop'} campaign ${campaignId}: ${e instanceof Error ? e.message : String(e)}`,
+        )
+        throw e
+      }
+    },
+    [],
+  )
+
   const fetchSequences = useCallback(
     (campaignId: number) => fetchCampaignSequences('', campaignId),
     [],
@@ -192,7 +242,10 @@ export default function App() {
           tagOptions={tagOptions}
           loading={loading}
           onUpdateMaxLeads={handleUpdateMaxLeads}
+          onUpdateStatus={handleUpdateStatus}
           fetchSequences={fetchSequences}
+          visibleCols={visibleCols}
+          onColumnsChange={setVisibleCols}
         />
       </main>
     </div>

@@ -163,13 +163,25 @@ export interface TagForecast extends TagVolume {
 export interface CampaignPerformance {
   campaign: Campaign
   tagName: string | null
+  /** Raw campaign status from Smartlead (ACTIVE / PAUSED / COMPLETED / …). */
+  status: string
+  /** Completed ÷ total leads × 100 — how far the campaign has run. */
+  progressPercent: number
   sent: number
   replied: number
+  /** replied ÷ sent × 100. */
+  repliedRate: number
   oooReplied: number
+  /** ooo ÷ sent × 100. */
+  oooRate: number
   interested: number
+  /** interested ÷ sent × 100 (a.k.a. positive rate / lead rate). */
+  positiveRate: number
   /** interested ÷ sent × 100 (per-email basis). */
   leadRate: number
   bounced: number
+  /** bounced ÷ sent × 100. */
+  bounceRate: number
   maxLeadsPerDay: number | null
 }
 

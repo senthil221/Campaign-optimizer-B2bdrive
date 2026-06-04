@@ -1,5 +1,8 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { CampaignPerformance, SequenceStat } from '../types'
+import type { CampaignStatusAction } from '../services/smartlead'
+import CampaignStatusBadge from './CampaignStatusBadge'
+import { ProgressBar, leadBreakdownTitle } from './ProgressBar'
 
 interface SeqState {
   loading: boolean
@@ -7,12 +10,33 @@ interface SeqState {
   data: SequenceStat[] | null
 }
 
+// Toggleable columns (the Campaign name column is always shown). Order here is
+// the render order in the table and the order in the Columns menu.
+export const PERF_COLUMNS = [
+  { id: 'tag', label: 'Tag' },
+  { id: 'status', label: 'Status' },
+  { id: 'progress', label: 'Progress' },
+  { id: 'sent', label: 'Sent' },
+  { id: 'replied', label: 'Replied' },
+  { id: 'ooo', label: 'OOO' },
+  { id: 'positive', label: 'Positive' },
+  { id: 'leadRate', label: 'Lead Rate' },
+  { id: 'bounced', label: 'Bounced' },
+  { id: 'maxLeads', label: 'Max leads/day' },
+  { id: 'actions', label: 'Actions' },
+] as const
+
+export type ColumnId = (typeof PERF_COLUMNS)[number]['id']
+
 interface Props {
   rows: CampaignPerformance[]
   tagOptions: string[]
   loading: boolean
   onUpdateMaxLeads: (campaignId: number, value: number) => Promise<void>
+  onUpdateStatus: (campaignId: number, action: CampaignStatusAction) => Promise<void>
   fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
+  visibleCols: Record<string, boolean>
+  onColumnsChange: (next: Record<string, boolean>) => void
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -26,6 +50,36 @@ const inputCls =
   'h-9 rounded-xl border border-line bg-base px-3 text-sm text-ink placeholder:text-faint outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25'
 
 const UNMAPPED = '__unmapped__'
+
+// A metric shown as a percentage of sent, with the raw count as a faint hint.
+function RateCell({
+  count,
+  rate,
+  tone,
+}: {
+  count: number
+  rate: number
+  tone: 'muted' | 'faint' | 'positive' | 'critical'
+}) {
+  const color =
+    tone === 'critical'
+      ? count > 0
+        ? 'text-critical'
+        : 'text-faint'
+      : tone === 'positive'
+        ? count > 0
+          ? 'text-positive'
+          : 'text-faint'
+        : tone === 'muted'
+          ? 'text-ink'
+          : 'text-faint'
+  return (
+    <td className={`${TD} text-right`}>
+      <span className={`font-semibold ${color}`}>{pct(rate)}</span>{' '}
+      <span className="text-[11px] text-faint">({fmt(count)})</span>
+    </td>
+  )
+}
 
 // Inline editor for max new leads/day. Shows the value formatted; focusing
 // turns it into a plain digit field. Commits on Enter/blur, cancels on Esc.
@@ -110,6 +164,153 @@ function MaxLeadsCell({
   )
 }
 
+// Pause / resume control. Only ACTIVE and PAUSED campaigns are actionable;
+// drafted / completed / stopped campaigns show a dash.
+function ActionCell({
+  id,
+  status,
+  onUpdate,
+}: {
+  id: number
+  status: string
+  onUpdate: (id: number, action: CampaignStatusAction) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(false)
+  const s = (status || '').toUpperCase()
+  const canPause = s === 'ACTIVE'
+  const canResume = s === 'PAUSED'
+
+  if (!canPause && !canResume) {
+    return <span className="text-xs text-faint">—</span>
+  }
+
+  const action: CampaignStatusAction = canPause ? 'PAUSED' : 'START'
+  const label = canPause ? 'Pause' : 'Resume'
+  const run = async () => {
+    setBusy(true)
+    setError(false)
+    try {
+      await onUpdate(id, action)
+    } catch {
+      setError(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const tone = canPause
+    ? 'border-warn/35 text-warn hover:bg-warn/10'
+    : 'border-positive/35 text-positive hover:bg-positive/10'
+
+  return (
+    <button
+      onClick={run}
+      disabled={busy}
+      title={error ? 'Last attempt failed — click to retry' : `${label} this campaign`}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        error ? 'border-critical/60 text-critical hover:bg-critical/10' : tone
+      }`}
+    >
+      {busy ? (
+        <span className="inline-block animate-spin">↻</span>
+      ) : (
+        <span className="leading-none">{canPause ? '⏸' : '▶'}</span>
+      )}
+      {error ? 'Retry' : label}
+    </button>
+  )
+}
+
+// Dropdown of checkboxes to show/hide columns. Closes on outside click / Esc.
+function ColumnsMenu({
+  visibleCols,
+  onColumnsChange,
+}: {
+  visibleCols: Record<string, boolean>
+  onColumnsChange: (next: Record<string, boolean>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const show = (id: string) => visibleCols[id] !== false
+  const hiddenCount = PERF_COLUMNS.filter((c) => !show(c.id)).length
+
+  const toggle = (id: string) =>
+    onColumnsChange({ ...visibleCols, [id]: !show(id) })
+  const showAll = () =>
+    onColumnsChange(
+      Object.fromEntries(PERF_COLUMNS.map((c) => [c.id, true])),
+    )
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium transition ${
+          open || hiddenCount > 0
+            ? 'border-lime/40 bg-lime/[0.06] text-ink'
+            : 'border-line bg-base text-muted hover:text-ink'
+        }`}
+      >
+        <span className="text-xs">▥</span>
+        Columns
+        {hiddenCount > 0 && (
+          <span className="tnum rounded-full bg-lime/15 px-1.5 text-[10px] font-semibold text-lime">
+            {hiddenCount} hidden
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-panel-2 shadow-panel">
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
+              Show columns
+            </span>
+            <button
+              onClick={showAll}
+              className="text-[11px] font-semibold text-lime hover:underline"
+            >
+              Reset
+            </button>
+          </div>
+          <div className="max-h-72 overflow-auto py-1">
+            {PERF_COLUMNS.map((c) => (
+              <label
+                key={c.id}
+                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-ink transition hover:bg-white/[0.03]"
+              >
+                <input
+                  type="checkbox"
+                  checked={show(c.id)}
+                  onChange={() => toggle(c.id)}
+                  className="h-3.5 w-3.5 accent-lime"
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Per-variant analytics shown when a campaign row is expanded.
 function SequenceBreakdown({ state }: { state: SeqState | undefined }) {
   if (!state || state.loading) {
@@ -188,12 +389,19 @@ export default function CampaignPerformanceTable({
   tagOptions,
   loading,
   onUpdateMaxLeads,
+  onUpdateStatus,
   fetchSequences,
+  visibleCols,
+  onColumnsChange,
 }: Props) {
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
   const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
+
+  const show = (id: ColumnId) => visibleCols[id] !== false
+  // 1 = always-on Campaign column, plus every visible toggleable column.
+  const colCount = 1 + PERF_COLUMNS.filter((c) => show(c.id)).length
 
   const toggleExpand = (id: number) => {
     if (expanded === id) {
@@ -234,6 +442,17 @@ export default function CampaignPerformanceTable({
     })
   }, [rows, search, tagFilter])
 
+  // Overall lead completion across ALL campaigns (not the current filter).
+  const overall = useMemo(() => {
+    let total = 0
+    let completed = 0
+    for (const r of rows) {
+      total += r.campaign.leadStats.total
+      completed += r.campaign.leadStats.completed
+    }
+    return { total, completed, percent: total > 0 ? (completed / total) * 100 : 0 }
+  }, [rows])
+
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
@@ -243,9 +462,25 @@ export default function CampaignPerformanceTable({
             Campaign Performance
           </h2>
           <span className="text-[12px] font-medium text-faint">
-            Lead Rate = Interested ÷ Sent
+            Rates are ÷ Sent · Lead Rate = Interested ÷ Sent
           </span>
         </div>
+
+        {/* Overall completion across every campaign */}
+        {!loading && overall.total > 0 && (
+          <div
+            className="flex items-center gap-3"
+            title={`${fmt(overall.completed)} of ${fmt(overall.total)} leads completed`}
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
+              Overall
+            </span>
+            <ProgressBar percent={overall.percent} className="w-32" />
+            <span className="tnum font-display text-[15px] font-semibold text-ink">
+              {overall.percent.toFixed(1)}%
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Controls */}
@@ -269,6 +504,7 @@ export default function CampaignPerformanceTable({
           ))}
           <option value={UNMAPPED}>— Untagged —</option>
         </select>
+        <ColumnsMenu visibleCols={visibleCols} onColumnsChange={onColumnsChange} />
         <span className="ml-auto tnum text-xs font-medium text-faint">
           {filtered.length} of {rows.length}
         </span>
@@ -280,14 +516,21 @@ export default function CampaignPerformanceTable({
           <thead className="sticky top-0 z-10 bg-panel-2">
             <tr className="border-b border-line">
               <th className={`${TH} pl-5 text-left`}>Campaign</th>
-              <th className={`${TH} text-left`}>Tag</th>
-              <th className={`${TH} text-right`}>Sent</th>
-              <th className={`${TH} text-right`}>Replied</th>
-              <th className={`${TH} text-right`}>OOO</th>
-              <th className={`${TH} text-right`}>Positive</th>
-              <th className={`${TH} text-right`}>Lead Rate</th>
-              <th className={`${TH} text-right`}>Bounced</th>
-              <th className={`${TH} border-l border-line pr-5 text-right`}>Max&nbsp;leads/day</th>
+              {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
+              {show('status') && <th className={`${TH} text-left`}>Status</th>}
+              {show('progress') && <th className={`${TH} text-left`}>Progress</th>}
+              {show('sent') && <th className={`${TH} text-right`}>Sent</th>}
+              {show('replied') && <th className={`${TH} text-right`}>Replied</th>}
+              {show('ooo') && <th className={`${TH} text-right`}>OOO</th>}
+              {show('positive') && <th className={`${TH} text-right`}>Positive</th>}
+              {show('leadRate') && <th className={`${TH} text-right`}>Lead Rate</th>}
+              {show('bounced') && <th className={`${TH} text-right`}>Bounced</th>}
+              {show('maxLeads') && (
+                <th className={`${TH} border-l border-line text-right`}>Max&nbsp;leads/day</th>
+              )}
+              {show('actions') && (
+                <th className={`${TH} pr-5 text-right`}>Actions</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -295,7 +538,7 @@ export default function CampaignPerformanceTable({
               rows.length === 0 &&
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-b border-line-soft">
-                  <td colSpan={9} className="px-4 py-3">
+                  <td colSpan={colCount} className="px-4 py-3">
                     <div className="h-4 w-full animate-pulse rounded bg-white/5" />
                   </td>
                 </tr>
@@ -303,7 +546,7 @@ export default function CampaignPerformanceTable({
 
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-14 text-center text-sm text-faint">
+                <td colSpan={colCount} className="px-4 py-14 text-center text-sm text-faint">
                   No campaigns match the current filter.
                 </td>
               </tr>
@@ -338,49 +581,90 @@ export default function CampaignPerformanceTable({
                       </span>
                     </button>
                   </td>
-                  <td className="px-4 py-2 align-middle">
-                    {r.tagName ? (
-                      <span className="inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-md border border-line bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-muted">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime/70" />
-                        <span className="truncate">{r.tagName}</span>
+
+                  {show('tag') && (
+                    <td className="px-4 py-2 align-middle">
+                      {r.tagName ? (
+                        <span className="inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-md border border-line bg-white/[0.03] px-2 py-0.5 text-xs font-medium text-muted">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime/70" />
+                          <span className="truncate">{r.tagName}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-faint">Untagged</span>
+                      )}
+                    </td>
+                  )}
+
+                  {show('status') && (
+                    <td className="px-4 py-2 align-middle">
+                      <CampaignStatusBadge status={r.status} />
+                    </td>
+                  )}
+
+                  {show('progress') && (
+                    <td className="px-4 py-2 align-middle">
+                      <div
+                        className="flex items-center gap-2"
+                        title={leadBreakdownTitle(c.leadStats)}
+                      >
+                        <ProgressBar percent={r.progressPercent} className="w-20" />
+                        <span className="tnum w-12 text-right text-xs text-muted">
+                          {r.progressPercent}%
+                        </span>
+                      </div>
+                    </td>
+                  )}
+
+                  {show('sent') && (
+                    <td className={`${TD} text-right font-semibold text-ink`}>{fmt(r.sent)}</td>
+                  )}
+                  {show('replied') && (
+                    <RateCell count={r.replied} rate={r.repliedRate} tone="muted" />
+                  )}
+                  {show('ooo') && (
+                    <RateCell count={r.oooReplied} rate={r.oooRate} tone="faint" />
+                  )}
+                  {show('positive') && (
+                    <RateCell count={r.interested} rate={r.positiveRate} tone="positive" />
+                  )}
+                  {show('leadRate') && (
+                    <td className={`${TD} text-right`}>
+                      <span
+                        className={`tnum inline-flex min-w-[56px] justify-end rounded-md px-2 py-0.5 text-xs font-semibold ${
+                          r.leadRate > 0 ? 'bg-positive/10 text-positive' : 'text-faint'
+                        }`}
+                      >
+                        {pct(r.leadRate)}
                       </span>
-                    ) : (
-                      <span className="text-xs font-medium text-faint">Untagged</span>
-                    )}
-                  </td>
-                  <td className={`${TD} text-right font-semibold text-ink`}>{fmt(r.sent)}</td>
-                  <td className={`${TD} text-right text-muted`}>{fmt(r.replied)}</td>
-                  <td className={`${TD} text-right text-faint`}>{fmt(r.oooReplied)}</td>
-                  <td className={`${TD} text-right font-semibold ${
-                    r.interested > 0 ? 'text-positive' : 'text-faint'
-                  }`}>
-                    {fmt(r.interested)}
-                  </td>
-                  <td className={`${TD} text-right`}>
-                    <span
-                      className={`tnum inline-flex min-w-[56px] justify-end rounded-md px-2 py-0.5 text-xs font-semibold ${
-                        r.leadRate > 0 ? 'bg-positive/10 text-positive' : 'text-faint'
-                      }`}
-                    >
-                      {pct(r.leadRate)}
-                    </span>
-                  </td>
-                  <td className={`${TD} text-right ${
-                    r.bounced > 0 ? 'text-critical' : 'text-faint'
-                  }`}>
-                    {fmt(r.bounced)}
-                  </td>
-                  <td className="border-l border-line px-4 py-2 pr-5 align-middle">
-                    <MaxLeadsCell
-                      id={c.campaignId}
-                      value={r.maxLeadsPerDay}
-                      onUpdate={onUpdateMaxLeads}
-                    />
-                  </td>
+                    </td>
+                  )}
+                  {show('bounced') && (
+                    <RateCell count={r.bounced} rate={r.bounceRate} tone="critical" />
+                  )}
+
+                  {show('maxLeads') && (
+                    <td className="border-l border-line px-4 py-2 align-middle">
+                      <MaxLeadsCell
+                        id={c.campaignId}
+                        value={r.maxLeadsPerDay}
+                        onUpdate={onUpdateMaxLeads}
+                      />
+                    </td>
+                  )}
+
+                  {show('actions') && (
+                    <td className="px-4 py-2 pr-5 text-right align-middle">
+                      <ActionCell
+                        id={c.campaignId}
+                        status={r.status}
+                        onUpdate={onUpdateStatus}
+                      />
+                    </td>
+                  )}
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={9} className="p-0">
+                    <td colSpan={colCount} className="p-0">
                       <SequenceBreakdown state={seqCache[c.campaignId]} />
                     </td>
                   </tr>
