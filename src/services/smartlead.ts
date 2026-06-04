@@ -105,6 +105,8 @@ export function normalizeEmailAccount(raw: RawEmailAccount): EmailAccount {
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
     connected,
+    // If the field is absent, assume in-use (safe default for unfiltered responses).
+    isInUse: raw?.is_in_use !== false,
     tagIds,
     tagNames,
   }

@@ -17,8 +17,8 @@ export const TAG_COLUMNS = [
   { id: 'status', label: 'Status' },
   { id: 'accts', label: 'Accts' },
   { id: 'volume', label: 'Volume' },
-  { id: 'used', label: 'Used' },
-  { id: 'unused', label: 'Unused' },
+  { id: 'used', label: 'Used today' },
+  { id: 'unused', label: 'Idle inboxes' },
   { id: 'avgRep', label: 'Avg rep' },
   { id: 'disc', label: 'Disc.' },
 ] as const
@@ -112,8 +112,12 @@ export default function TagForecastSummary({
                   <th className={`${TH} border-l border-line text-right`}>Accts</th>
                 )}
                 {show('volume') && <th className={`${TH} text-right`}>Volume</th>}
-                {show('used') && <th className={`${TH} text-right`}>Used</th>}
-                {show('unused') && <th className={`${TH} text-right`}>Unused</th>}
+                {show('used') && <th className={`${TH} text-right`}>Used today</th>}
+                {show('unused') && (
+                  <th className={`${TH} text-right`} title="Inboxes tagged but not assigned to any campaign">
+                    Idle inboxes
+                  </th>
+                )}
                 {show('avgRep') && <th className={`${TH} text-right`}>Avg rep</th>}
                 {show('disc') && <th className={`${TH} pr-5 text-right`}>Disc.</th>}
               </tr>
@@ -186,11 +190,21 @@ export default function TagForecastSummary({
                     )}
                     {show('unused') && (
                       <td
-                        className={`${TD} text-right ${
-                          t.remainingToday <= 0 ? 'text-critical' : 'text-positive'
-                        }`}
+                        className={`${TD} text-right`}
+                        title={
+                          t.idleCount > 0
+                            ? `${t.idleCount} inbox${t.idleCount > 1 ? 'es' : ''} tagged "${t.tagName}" but not in any campaign — ${fmt(t.idleVolume)} emails/day sitting idle`
+                            : 'All inboxes are assigned to campaigns'
+                        }
                       >
-                        {fmt(t.remainingToday)}
+                        {t.idleCount > 0 ? (
+                          <span className="text-warn">
+                            {fmt(t.idleVolume)}
+                            <span className="ml-1 text-[11px] text-warn/60">({t.idleCount})</span>
+                          </span>
+                        ) : (
+                          <span className="text-faint">—</span>
+                        )}
                       </td>
                     )}
                     {show('avgRep') && (

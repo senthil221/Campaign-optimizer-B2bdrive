@@ -4,6 +4,9 @@ import type { EmailAccount, TagVolume } from '../types'
  * Group normalized email accounts by tag and compute sending volume per tag.
  * An account carrying multiple tags contributes to each of its tags.
  * Accounts with no tag are grouped under a synthetic "Untagged" bucket.
+ *
+ * "Idle" = inbox has a tag but is NOT assigned to any campaign (isInUse=false).
+ * idleVolume lets you spot sending capacity that is going to waste.
  */
 export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
   interface Acc {
@@ -15,6 +18,8 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     disconnects: number
     reputationSum: number
     reputationCount: number
+    idleVolume: number
+    idleCount: number
   }
 
   const map = new Map<string, Acc>()
@@ -31,6 +36,8 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         disconnects: 0,
         reputationSum: 0,
         reputationCount: 0,
+        idleVolume: 0,
+        idleCount: 0,
       }
       map.set(tagName, entry)
     }
@@ -51,13 +58,20 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
       const entry = ensure(id, name)
       entry.accountCount += 1
 
-      // A disconnected mailbox can't send, so it adds no deliverable volume.
-      // It still counts toward the account total and the disconnect tally.
+      // Disconnected mailboxes: count toward total + disconnects, no volume.
       if (!account.connected) {
         entry.disconnects += 1
         continue
       }
 
+      // Idle inbox: tagged but not assigned to any campaign.
+      if (!account.isInUse) {
+        entry.idleVolume += account.messagePerDay
+        entry.idleCount += 1
+        continue // don't count toward active sending volume or reputation
+      }
+
+      // Active inbox: in a campaign and connected.
       entry.totalDailyVolume += account.messagePerDay
       entry.usedToday += account.dailySentCount
       if (account.warmupReputation > 0) {
@@ -80,6 +94,8 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         e.reputationCount > 0
           ? Math.round((e.reputationSum / e.reputationCount) * 10) / 10
           : 0,
+      idleVolume: e.idleVolume,
+      idleCount: e.idleCount,
     }))
     .sort((a, b) => b.totalDailyVolume - a.totalDailyVolume)
 }
