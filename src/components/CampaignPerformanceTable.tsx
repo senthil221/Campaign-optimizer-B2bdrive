@@ -609,9 +609,9 @@ export default function CampaignPerformanceTable({
                           {r.tagVolume != null && r.tagVolume > 0 && (
                             <span
                               className="tnum whitespace-nowrap text-[11px] font-medium text-faint"
-                              title={`Daily sending volume of the "${r.tagName}" pool`}
+                              title={`~${fmt(Math.round(r.tagVolume / 2))} prospects/day you can reach with the "${r.tagName}" pool (${fmt(r.tagVolume)} emails/day ÷ 2 for follow-ups)`}
                             >
-                              {fmt(r.tagVolume)}/day
+                              {fmt(Math.round(r.tagVolume / 2))}/day
                             </span>
                           )}
                         </div>
