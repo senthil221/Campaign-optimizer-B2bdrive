@@ -10,6 +10,7 @@ const TD = 'px-3 py-2 whitespace-nowrap align-middle tnum tabular-nums text-[13p
 
 // Toggleable columns (the Tag name column is always shown).
 export const TAG_COLUMNS = [
+  { id: 'campaigns', label: 'Campaigns' },
   { id: 'leads', label: 'Prospects' },
   { id: 'notStarted', label: 'Not started' },
   { id: 'demand', label: 'Demand' },
@@ -100,6 +101,9 @@ export default function TagForecastSummary({
             <thead>
               <tr className="border-b border-line">
                 <th className={`${TH} pl-5 text-left`}>Tag</th>
+                {show('campaigns') && (
+                  <th className={`${TH} border-l border-line text-right`}>Campaigns</th>
+                )}
                 {show('leads') && (
                   <th className={`${TH} border-l border-line text-right`}>Prospects</th>
                 )}
@@ -134,6 +138,15 @@ export default function TagForecastSummary({
                     >
                       {t.tagName}
                     </td>
+                    {show('campaigns') && (
+                      <td
+                        className={`${TD} border-l border-line text-right ${
+                          t.mappedCampaigns > 0 ? 'font-semibold text-ink' : 'text-faint'
+                        }`}
+                      >
+                        {fmt(t.mappedCampaigns)}
+                      </td>
+                    )}
                     {show('leads') && (
                       <td className={`${TD} border-l border-line text-right text-ink`}>
                         {idle ? <span className="text-faint">—</span> : fmt(t.leadsTotal)}
