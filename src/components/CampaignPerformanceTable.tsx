@@ -22,7 +22,7 @@ export const PERF_COLUMNS = [
   { id: 'sent', label: 'Sent' },
   { id: 'replied', label: 'Replied' },
   { id: 'ooo', label: 'OOO' },
-  { id: 'positive', label: 'Positive' },
+  { id: 'positive', label: 'Leads' },
   { id: 'leadRate', label: 'Lead Rate' },
   { id: 'bounced', label: 'Bounced' },
   { id: 'maxLeads', label: 'Max leads/day' },
@@ -70,6 +70,39 @@ const KNOWN_STATUSES = new Set(
 function statusBucket(status: string): string {
   const key = (status || '').toUpperCase()
   return KNOWN_STATUSES.has(key) ? key : 'OTHER'
+}
+
+// ---- Dynamic sorting ----
+type SortDir = 'asc' | 'desc'
+type SortKey =
+  | 'completion'
+  | 'sent'
+  | 'replied'
+  | 'ooo'
+  | 'positive'
+  | 'leadRate'
+  | 'bounced'
+
+// The numeric a sort key reads from each row.
+const SORT_VALUE: Record<SortKey, (r: CampaignPerformance) => number> = {
+  completion: (r) => r.progressPercent,
+  sent: (r) => r.sent,
+  replied: (r) => r.replied,
+  ooo: (r) => r.oooReplied,
+  positive: (r) => r.interested,
+  leadRate: (r) => r.leadRate,
+  bounced: (r) => r.bounced,
+}
+
+// Direction applied when a column is first clicked.
+const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
+  completion: 'asc',
+  sent: 'desc',
+  replied: 'desc',
+  ooo: 'desc',
+  positive: 'desc',
+  leadRate: 'desc',
+  bounced: 'desc',
 }
 
 // A metric shown as a percentage of sent, with the raw count as a faint hint.
@@ -329,10 +362,51 @@ export default function CampaignPerformanceTable({
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>(() => loadStatusFilter())
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: 'sent',
+    dir: 'desc',
+  })
   const [expanded, setExpanded] = useState<number | null>(null)
   const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
 
   useEffect(() => saveStatusFilter(statusFilter), [statusFilter])
+
+  // Click a header: same column flips direction, a new column starts at its
+  // natural default (completion ascends — lowest-progress first; the rest
+  // descend so the biggest numbers lead).
+  const onSort = (key: SortKey) =>
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: SORT_DEFAULT_DIR[key] },
+    )
+
+  // A clickable, sort-aware table header.
+  const headCell = (
+    key: SortKey,
+    label: string,
+    opts: { left?: boolean; extra?: string; title?: string } = {},
+  ) => {
+    const active = sort.key === key
+    const align = opts.left ? 'text-left' : 'text-right'
+    return (
+      <th className={`${TH} ${align} ${opts.extra ?? ''}`}>
+        <button
+          type="button"
+          onClick={() => onSort(key)}
+          title={opts.title ?? `Sort by ${label.toLowerCase()}`}
+          className={`inline-flex items-center transition hover:text-ink ${active ? 'text-lime' : ''}`}
+        >
+          {label}
+          <span
+            className={`ml-1 text-[8px] leading-none ${active ? 'text-lime' : 'text-faint/40'}`}
+          >
+            {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+          </span>
+        </button>
+      </th>
+    )
+  }
 
   const show = (id: ColumnId) => visibleCols[id] !== false
   // 1 = always-on Campaign column, plus every visible toggleable column.
@@ -378,6 +452,12 @@ export default function CampaignPerformanceTable({
       )
     })
   }, [rows, search, tagFilter, statusFilter])
+
+  const sorted = useMemo(() => {
+    const val = SORT_VALUE[sort.key]
+    const mul = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => (val(a) - val(b)) * mul)
+  }, [filtered, sort])
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
@@ -441,15 +521,19 @@ export default function CampaignPerformanceTable({
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-panel-2/95 backdrop-blur-sm">
             <tr className="border-b border-line">
-              <th className={`${TH} pl-5 text-left`}>Campaign</th>
+              {headCell('completion', 'Campaign', {
+                left: true,
+                extra: 'pl-5',
+                title: 'Sort by completion %',
+              })}
               {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
               {show('status') && <th className={`${TH} text-left`}>Status</th>}
-              {show('sent') && <th className={`${TH} text-right`}>Sent</th>}
-              {show('replied') && <th className={`${TH} text-right`}>Replied</th>}
-              {show('ooo') && <th className={`${TH} text-right`}>OOO</th>}
-              {show('positive') && <th className={`${TH} text-right`}>Positive</th>}
-              {show('leadRate') && <th className={`${TH} text-right`}>Lead Rate</th>}
-              {show('bounced') && <th className={`${TH} text-right`}>Bounced</th>}
+              {show('sent') && headCell('sent', 'Sent')}
+              {show('replied') && headCell('replied', 'Replied')}
+              {show('ooo') && headCell('ooo', 'OOO')}
+              {show('positive') && headCell('positive', 'Leads')}
+              {show('leadRate') && headCell('leadRate', 'Lead Rate')}
+              {show('bounced') && headCell('bounced', 'Bounced')}
               {show('maxLeads') && (
                 <th className={`${TH} border-l border-line/60 text-right`}>Max leads/day</th>
               )}
@@ -477,7 +561,7 @@ export default function CampaignPerformanceTable({
               </tr>
             )}
 
-            {filtered.map((r) => {
+            {sorted.map((r) => {
               const c = r.campaign
               const isOpen = expanded === c.campaignId
               return (
@@ -551,7 +635,13 @@ export default function CampaignPerformanceTable({
                     <RateCell count={r.oooReplied} rate={r.oooRate} tone="faint" />
                   )}
                   {show('positive') && (
-                    <RateCell count={r.interested} rate={r.positiveRate} tone="positive" />
+                    <td className={`${TD} text-right`}>
+                      <span
+                        className={`font-semibold ${r.interested > 0 ? 'text-positive' : 'text-faint'}`}
+                      >
+                        {fmt(r.interested)}
+                      </span>
+                    </td>
                   )}
                   {show('leadRate') && (
                     <td className={`${TD} text-right`}>

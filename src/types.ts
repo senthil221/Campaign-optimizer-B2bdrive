@@ -221,7 +221,7 @@ export interface CampaignPerformance {
   interested: number
   /** interested ÷ sent × 100 (a.k.a. positive rate / lead rate). */
   positiveRate: number
-  /** interested ÷ replied × 100 (positive replies as share of all replies). */
+  /** Positive rate × 100 (e.g. 0.21% → 21%). */
   leadRate: number
   bounced: number
   /** bounced ÷ sent × 100. */

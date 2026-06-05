@@ -10,7 +10,7 @@ const TD = 'px-3 py-2 whitespace-nowrap align-middle tnum tabular-nums text-[13p
 
 // Toggleable columns (the Tag name column is always shown).
 export const TAG_COLUMNS = [
-  { id: 'leads', label: 'Leads' },
+  { id: 'leads', label: 'Prospects' },
   { id: 'notStarted', label: 'Not started' },
   { id: 'demand', label: 'Demand' },
   { id: 'daysLeft', label: 'Days left' },
@@ -101,7 +101,7 @@ export default function TagForecastSummary({
               <tr className="border-b border-line">
                 <th className={`${TH} pl-5 text-left`}>Tag</th>
                 {show('leads') && (
-                  <th className={`${TH} border-l border-line text-right`}>Leads</th>
+                  <th className={`${TH} border-l border-line text-right`}>Prospects</th>
                 )}
                 {show('notStarted') && <th className={`${TH} text-right`}>Not started</th>}
                 {show('demand') && <th className={`${TH} text-right`}>Demand</th>}
