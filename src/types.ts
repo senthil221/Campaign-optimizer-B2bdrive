@@ -53,6 +53,21 @@ export interface RawCampaignAnalytics {
   campaign_lead_stats?: RawCampaignLeadStats | null
 }
 
+/** Shape returned by GET /api/email-campaigns/{id}/analytics/overview → data */
+export interface RawCampaignOverview {
+  leads?: {
+    total_leads_count?: number | null
+    unique_sent_count?: number | null
+    unique_delivered_count?: number | null
+  } | null
+  progress?: {
+    leads_in_progress?: number | null
+    completed?: number | null
+    leads_to_be_started?: number | null
+    total_leads?: number | null
+  } | null
+}
+
 /** Item returned by the campaign list endpoint */
 export interface RawCampaignListItem {
   id?: number | null
@@ -109,6 +124,22 @@ export interface CampaignLeadStats {
   senderBounced: number
 }
 
+/**
+ * Cumulative, deletion-proof counters from the analytics overview endpoint.
+ * `uniqueSent` keeps growing as leads are contacted and is NOT reduced when
+ * completed leads are later deleted, so it anchors a stable progress %.
+ */
+export interface CampaignOverview {
+  /** Unique leads ever contacted (cumulative — survives lead deletion). */
+  uniqueSent: number
+  /** Leads still mid-sequence right now. */
+  inProgress: number
+  /** Leads queued but never contacted yet. */
+  toBeStarted: number
+  /** Current (post-deletion) total lead count Smartlead reports. */
+  totalLeads: number
+}
+
 export interface Campaign {
   campaignId: number
   campaignName: string
@@ -125,6 +156,8 @@ export interface Campaign {
   /** Schedule cap: max new leads contacted per day. null = unknown/not loaded. */
   maxLeadsPerDay: number | null
   leadStats: CampaignLeadStats
+  /** Deletion-proof counters from analytics/overview. null = not loaded. */
+  overview: CampaignOverview | null
 }
 
 /** Normalized campaign-list row (ids + names + status + tags). */

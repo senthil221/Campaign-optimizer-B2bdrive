@@ -26,10 +26,41 @@ export function safeDivide(numerator: number, denominator: number): number {
 // Core campaign math
 // ---------------------------------------------------------------------------
 
+/**
+ * How far a campaign has run, as a percentage.
+ *
+ * Prefers the analytics/overview counters because they survive lead deletion.
+ * Smartlead's `unique_sent_count` is cumulative — it keeps counting every lead
+ * ever contacted and is NOT reduced when completed leads are deleted. The
+ * live `leadStats.completed / total` ratio, by contrast, collapses the moment
+ * completed leads are removed (both numerator and denominator shrink, and kept
+ * "responded" leads often aren't in the completed bucket), making a finished
+ * campaign look incomplete.
+ *
+ * Stable definition:
+ *   everEntered = uniqueSent + toBeStarted        (reached + not-yet-started)
+ *   finished    = uniqueSent − inProgress         (reached and no longer active)
+ *   progress    = finished / everEntered × 100
+ *
+ * Deleted leads were completed, so they were neither in-progress nor
+ * to-be-started — removing them leaves every term above unchanged.
+ */
 export function progressPercent(campaign: Campaign): number {
+  const ov = campaign.overview
+  if (ov && ov.uniqueSent + ov.toBeStarted > 0) {
+    const everEntered = ov.uniqueSent + ov.toBeStarted
+    const finished = Math.max(0, ov.uniqueSent - ov.inProgress)
+    const pct = clampPercent(safeDivide(finished, everEntered) * 100)
+    return Math.round(pct * 10) / 10
+  }
+
   const pct =
     safeDivide(campaign.leadStats.completed, campaign.leadStats.total) * 100
   return Math.round(pct * 10) / 10
+}
+
+function clampPercent(pct: number): number {
+  return Math.max(0, Math.min(100, pct))
 }
 
 export function remainingEmailDemand(

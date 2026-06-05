@@ -455,7 +455,7 @@ export default function CampaignPerformanceTable({
                 >
                   <td className="max-w-[340px] px-4 py-1.5 pl-3 align-middle">
                     <div className="flex items-center gap-2.5">
-                      <span title={leadBreakdownTitle(c.leadStats)} className="shrink-0">
+                      <span title={leadBreakdownTitle(c)} className="shrink-0">
                         <ProgressRing percent={r.progressPercent} />
                       </span>
                       <button

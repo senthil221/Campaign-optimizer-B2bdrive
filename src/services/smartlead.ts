@@ -1,9 +1,11 @@
 import type {
   Campaign,
   CampaignListEntry,
+  CampaignOverview,
   EmailAccount,
   LoadCampaignsResult,
   RawCampaignAnalytics,
+  RawCampaignOverview,
   RawEmailAccount,
   SequenceStat,
 } from '../types'
@@ -15,6 +17,7 @@ import { num } from '../utils/campaignCalculations'
 const EMAIL_ACCOUNTS_URL = '/api/email-accounts'
 const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
+const CAMPAIGN_OVERVIEW_URL = '/api/campaign-overview'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
@@ -198,6 +201,22 @@ export function normalizeCampaign(
       stopped: num(stats?.stopped, 0),
       senderBounced: num(stats?.senderBounced, 0),
     },
+    overview: null, // filled in by fetchCampaignOverviews()
+  }
+}
+
+/** Pull the deletion-proof counters out of an analytics/overview payload. */
+export function normalizeOverview(raw: RawCampaignOverview): CampaignOverview {
+  const leads = raw?.leads ?? {}
+  const progress = raw?.progress ?? {}
+  return {
+    uniqueSent: num(leads?.unique_sent_count, 0),
+    inProgress: num(progress?.leads_in_progress, 0),
+    toBeStarted: num(progress?.leads_to_be_started, 0),
+    totalLeads: num(
+      progress?.total_leads ?? leads?.total_leads_count,
+      0,
+    ),
   }
 }
 
@@ -407,6 +426,70 @@ export async function fetchCampaignAnalytics(
   }
 
   return Array.from(merged.values())
+}
+
+// ---------------------------------------------------------------------------
+// Campaign overview (per-campaign, deletion-proof progress counters)
+// ---------------------------------------------------------------------------
+
+/** GET one campaign's analytics overview. Returns null on any non-fatal miss. */
+export async function fetchCampaignOverview(
+  jwt: string,
+  id: number,
+): Promise<CampaignOverview | null> {
+  const res = await fetch(`${CAMPAIGN_OVERVIEW_URL}?id=${id}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Overview request failed (${res.status} ${res.statusText}) for campaign ${id}. Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(
+      `Overview response was not JSON for campaign ${id}. Response: ${preview(text)}`,
+    )
+  }
+  const data = (json as Record<string, unknown>)?.data
+  if (!data || typeof data !== 'object') return null
+  return normalizeOverview(data as RawCampaignOverview)
+}
+
+/**
+ * Fetch overviews for many campaigns with bounded concurrency. The endpoint is
+ * per-campaign (no batch form), so this runs a small pool of workers rather
+ * than firing every request at once. Individual failures are swallowed — a
+ * missing overview just falls back to the live lead-stats progress.
+ */
+export async function fetchCampaignOverviews(
+  jwt: string,
+  ids: number[],
+  concurrency = 6,
+): Promise<Map<number, CampaignOverview>> {
+  const out = new Map<number, CampaignOverview>()
+  if (ids.length === 0) return out
+
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < ids.length) {
+      const id = ids[cursor++]
+      try {
+        const ov = await fetchCampaignOverview(jwt, id)
+        if (ov) out.set(id, ov)
+      } catch {
+        // best-effort: leave this campaign without an overview
+      }
+    }
+  }
+
+  const pool = Array.from({ length: Math.min(concurrency, ids.length) }, worker)
+  await Promise.all(pool)
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +744,26 @@ export async function loadCampaigns(
   } catch (e) {
     warnings.push(
       `Could not load max-leads/day from the schedule: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+
+  // 5) Per-campaign overview counters (deletion-proof progress) — best-effort.
+  //    Without this, progress falls back to completed/total, which collapses
+  //    once completed leads are deleted from a campaign.
+  try {
+    const overviewMap = await fetchCampaignOverviews(jwt, ids)
+    for (const c of campaigns) {
+      const ov = overviewMap.get(c.campaignId)
+      if (ov) c.overview = ov
+    }
+    if (overviewMap.size === 0 && campaigns.length > 0) {
+      warnings.push(
+        'Could not load campaign overview counters — progress may understate campaigns whose completed leads were deleted.',
+      )
+    }
+  } catch (e) {
+    warnings.push(
+      `Could not load campaign overview counters: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
 
