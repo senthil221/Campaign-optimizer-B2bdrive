@@ -32,7 +32,7 @@ const RAIL: Record<CampaignStatus, string> = {
   no_capacity: 'border-l-orange-400',
   healthy: 'border-l-positive/45',
   unmapped: 'border-l-transparent',
-  ended: 'border-l-transparent',
+  ended: 'border-l-critical',
 }
 
 const daysColor = (d: number | null, status: CampaignStatus) => {

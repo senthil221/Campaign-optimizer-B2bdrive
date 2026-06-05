@@ -36,9 +36,9 @@ const META: Record<
   },
   ended: {
     label: 'Ended',
-    dot: 'bg-faint/40',
-    text: 'text-faint',
-    bg: 'bg-white/[0.02] ring-1 ring-inset ring-white/6',
+    dot: 'bg-critical',
+    text: 'text-critical',
+    bg: 'bg-critical/[0.08] ring-1 ring-inset ring-critical/20',
   },
 }
 

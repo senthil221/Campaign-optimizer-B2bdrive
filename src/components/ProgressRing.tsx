@@ -69,7 +69,7 @@ export function ProgressRing({
         fill="#F4F4F5"
         fontWeight="700"
         style={{
-          fontSize: size * 0.29,
+          fontSize: size * 0.23,
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum" 1',
         }}
