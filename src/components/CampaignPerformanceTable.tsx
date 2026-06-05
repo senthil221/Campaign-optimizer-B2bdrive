@@ -96,8 +96,8 @@ function RateCell({
           : 'text-faint'
   return (
     <td className={`${TD} text-right`}>
-      <span className={`font-semibold ${color}`}>{pct(rate)}</span>{' '}
-      <span className="text-[11px] text-faint">({fmt(count)})</span>
+      <span className={`font-semibold ${color}`}>{fmt(count)}</span>{' '}
+      <span className="text-[11px] text-faint">({pct(rate)})</span>
     </td>
   )
 }
