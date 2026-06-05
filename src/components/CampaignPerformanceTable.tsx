@@ -44,6 +44,8 @@ interface Props {
 
 const fmt = (n: number) => n.toLocaleString()
 const pct = (n: number) => `${n.toFixed(2)}%`
+// Like pct, but drops trailing zeros: 26.00 → "26%", 13.5 → "13.5%".
+const cleanPct = (n: number) => `${Number(n.toFixed(2))}%`
 const ratio = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
 const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
@@ -650,7 +652,7 @@ export default function CampaignPerformanceTable({
                           r.leadRate > 0 ? 'bg-positive/10 text-positive' : 'text-faint'
                         }`}
                       >
-                        {pct(r.leadRate)}
+                        {cleanPct(r.leadRate)}
                       </span>
                     </td>
                   )}
