@@ -7,7 +7,12 @@ const EMAILS_PER_LEAD_KEY = 'sl_emails_per_lead'
 export const PERF_COLUMNS_KEY = 'sl_visible_columns'
 export const TAG_COLUMNS_KEY = 'sl_tag_columns'
 
+const STATUS_FILTER_KEY = 'sl_status_filter'
+
 export const DEFAULT_EMAILS_PER_LEAD = 2
+
+/** Campaign statuses shown by default — only running campaigns. */
+export const DEFAULT_STATUS_FILTER = ['ACTIVE']
 
 export function loadTagMap(): CampaignTagMap {
   try {
@@ -59,6 +64,26 @@ export function saveVisibleColumns(
 ): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Persisted set of campaign statuses to show in the performance table. */
+export function loadStatusFilter(): string[] {
+  try {
+    const raw = localStorage.getItem(STATUS_FILTER_KEY)
+    if (!raw) return [...DEFAULT_STATUS_FILTER]
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map(String) : [...DEFAULT_STATUS_FILTER]
+  } catch {
+    return [...DEFAULT_STATUS_FILTER]
+  }
+}
+
+export function saveStatusFilter(value: string[]): void {
+  try {
+    localStorage.setItem(STATUS_FILTER_KEY, JSON.stringify(value))
   } catch {
     /* ignore */
   }

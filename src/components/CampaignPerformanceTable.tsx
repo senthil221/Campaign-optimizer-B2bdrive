@@ -1,8 +1,10 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { CampaignPerformance, SequenceStat } from '../types'
 import type { CampaignStatusAction } from '../services/smartlead'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
+import StatusFilter, { type StatusOption } from './StatusFilter'
+import { loadStatusFilter, saveStatusFilter } from '../utils/storage'
 import { leadBreakdownTitle } from './ProgressBar'
 import { ProgressRing } from './ProgressRing'
 
@@ -48,6 +50,27 @@ const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-
 const TD = 'px-4 py-1.5 whitespace-nowrap align-middle tnum tabular-nums'
 
 const UNMAPPED = '__unmapped__'
+
+// Status filter options. "Other" catches any unknown/empty status so nothing
+// is permanently hidden. Order here is the menu order and persisted order.
+const STATUS_OPTIONS: readonly StatusOption[] = [
+  { id: 'ACTIVE', label: 'Active' },
+  { id: 'PAUSED', label: 'Paused' },
+  { id: 'COMPLETED', label: 'Completed' },
+  { id: 'DRAFTED', label: 'Drafted' },
+  { id: 'STOPPED', label: 'Stopped' },
+  { id: 'OTHER', label: 'Other' },
+] as const
+
+const KNOWN_STATUSES = new Set(
+  STATUS_OPTIONS.map((o) => o.id).filter((id) => id !== 'OTHER'),
+)
+
+/** Map a raw Smartlead status to one of the filter buckets. */
+function statusBucket(status: string): string {
+  const key = (status || '').toUpperCase()
+  return KNOWN_STATUSES.has(key) ? key : 'OTHER'
+}
 
 // A metric shown as a percentage of sent, with the raw count as a faint hint.
 function RateCell({
@@ -305,8 +328,11 @@ export default function CampaignPerformanceTable({
 }: Props) {
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string[]>(() => loadStatusFilter())
   const [expanded, setExpanded] = useState<number | null>(null)
   const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
+
+  useEffect(() => saveStatusFilter(statusFilter), [statusFilter])
 
   const show = (id: ColumnId) => visibleCols[id] !== false
   // 1 = always-on Campaign column, plus every visible toggleable column.
@@ -340,7 +366,9 @@ export default function CampaignPerformanceTable({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
+    const statusSet = new Set(statusFilter)
     return rows.filter((r) => {
+      if (!statusSet.has(statusBucket(r.status))) return false
       if (tagFilter === UNMAPPED && r.tagName) return false
       if (tagFilter && tagFilter !== UNMAPPED && r.tagName !== tagFilter) return false
       if (!q) return true
@@ -349,7 +377,7 @@ export default function CampaignPerformanceTable({
         String(r.campaign.campaignId).includes(q)
       )
     })
-  }, [rows, search, tagFilter])
+  }, [rows, search, tagFilter, statusFilter])
 
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
@@ -394,6 +422,12 @@ export default function CampaignPerformanceTable({
           ))}
           <option value={UNMAPPED}>Untagged</option>
         </select>
+
+        <StatusFilter
+          options={STATUS_OPTIONS}
+          selected={statusFilter}
+          onChange={setStatusFilter}
+        />
 
         <ColumnsMenu
           columns={PERF_COLUMNS}
