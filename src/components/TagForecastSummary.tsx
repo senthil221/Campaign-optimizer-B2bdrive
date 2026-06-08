@@ -17,7 +17,7 @@ export const TAG_COLUMNS = [
   { id: 'daysLeft', label: 'Days left' },
   { id: 'status', label: 'Status' },
   { id: 'accts', label: 'Accts' },
-  { id: 'volume', label: 'Volume' },
+  { id: 'monthlyProspects', label: 'Monthly prospects' },
   { id: 'unused', label: 'Idle inboxes' },
   { id: 'avgRep', label: 'Avg rep' },
   { id: 'disc', label: 'Disc.' },
@@ -114,7 +114,14 @@ export default function TagForecastSummary({
                 {show('accts') && (
                   <th className={`${TH} border-l border-line text-right`}>Accts</th>
                 )}
-                {show('volume') && <th className={`${TH} text-right`}>Volume</th>}
+                {show('monthlyProspects') && (
+                  <th
+                    className={`${TH} text-right`}
+                    title="Prospects reachable per month: daily volume × 22 working days ÷ 2 for follow-ups"
+                  >
+                    Monthly prospects
+                  </th>
+                )}
                 {show('unused') && (
                   <th className={`${TH} text-right`} title="Inboxes tagged but not assigned to any campaign">
                     Idle inboxes
@@ -191,9 +198,13 @@ export default function TagForecastSummary({
                         {t.accountCount}
                       </td>
                     )}
-                    {show('volume') && (
+                    {show('monthlyProspects') && (
                       <td className={`${TD} text-right font-semibold text-ink`}>
-                        {fmt(t.totalDailyVolume)}
+                        {t.totalDailyVolume > 0 ? (
+                          fmt(Math.round((t.totalDailyVolume * 22) / 2))
+                        ) : (
+                          <span className="font-normal text-faint">—</span>
+                        )}
                       </td>
                     )}
                     {show('unused') && (
