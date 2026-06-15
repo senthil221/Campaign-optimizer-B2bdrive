@@ -95,6 +95,18 @@ export function resolveTagName(
   return null
 }
 
+/**
+ * Only ACTIVE campaigns are actually sending, so they're the only ones that
+ * deplete a tag's lead pool. Paused / stopped / completed / drafted campaigns
+ * contribute no daily sends — counting their leftover leads would inflate a
+ * tag's forecast (Days left, Demand, Not started) and mask a tag that's really
+ * about to run dry. Because campaign data is refetched live, a paused campaign
+ * that resumes flips back to ACTIVE and re-enters the math on its own.
+ */
+export function isActiveCampaign(campaign: Campaign): boolean {
+  return (campaign.status || '').toUpperCase() === 'ACTIVE'
+}
+
 function findTag(tagName: string | null, tags: TagVolume[]): TagVolume | null {
   if (!tagName) return null
   return (
@@ -283,8 +295,11 @@ export function buildTagForecasts(
   emailsPerLead: number,
 ): TagForecast[] {
   const availableTags = tags.map((t) => t.tagName)
+  // Forecast (demand, days-left, status) reflects only what's currently
+  // sending, so paused/stopped campaigns are excluded from every rollup below.
+  const activeCampaigns = campaigns.filter(isActiveCampaign)
   const demandMap = buildTagDemandMap(
-    campaigns,
+    activeCampaigns,
     tagMap,
     emailsPerLead,
     availableTags,
@@ -294,7 +309,7 @@ export function buildTagForecasts(
   const countMap = new Map<string, number>()
   const leadsMap = new Map<string, number>()
   const notStartedMap = new Map<string, number>()
-  for (const c of campaigns) {
+  for (const c of activeCampaigns) {
     const name = resolveTagName(c, tagMap, availableTags)
     if (!name) continue
     const key = name.toLowerCase()
