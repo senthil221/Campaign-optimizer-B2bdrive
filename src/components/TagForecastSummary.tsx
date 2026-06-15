@@ -150,8 +150,18 @@ export default function TagForecastSummary({
                         className={`${TD} border-l border-line text-right ${
                           t.mappedCampaigns > 0 ? 'font-semibold text-ink' : 'text-faint'
                         }`}
+                        title={
+                          t.pausedCampaigns > 0
+                            ? `${t.mappedCampaigns} active · ${t.pausedCampaigns} paused (paused campaigns are excluded from the forecast)`
+                            : `${t.mappedCampaigns} active`
+                        }
                       >
                         {fmt(t.mappedCampaigns)}
+                        {t.pausedCampaigns > 0 && (
+                          <span className="ml-1 text-[11px] font-normal text-warn/70">
+                            +{t.pausedCampaigns} paused
+                          </span>
+                        )}
                       </td>
                     )}
                     {show('leads') && (

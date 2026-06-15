@@ -321,11 +321,23 @@ export function buildTagForecasts(
     )
   }
 
+  // Paused campaigns are shown separately in the Campaigns column so the user
+  // can see what's sidelined without it polluting the active forecast.
+  const pausedMap = new Map<string, number>()
+  for (const c of campaigns) {
+    if ((c.status || '').toUpperCase() !== 'PAUSED') continue
+    const name = resolveTagName(c, tagMap, availableTags)
+    if (!name) continue
+    const key = name.toLowerCase()
+    pausedMap.set(key, (pausedMap.get(key) ?? 0) + 1)
+  }
+
   return tags
     .map((t) => {
       const key = t.tagName.toLowerCase()
       const sharedTagDemand = demandMap.get(key) ?? 0
       const mappedCampaigns = countMap.get(key) ?? 0
+      const pausedCampaigns = pausedMap.get(key) ?? 0
       const leadsTotal = leadsMap.get(key) ?? 0
       const notStartedTotal = notStartedMap.get(key) ?? 0
       const sharedTagDaysLeft =
@@ -345,6 +357,7 @@ export function buildTagForecasts(
       return {
         ...t,
         mappedCampaigns,
+        pausedCampaigns,
         leadsTotal,
         notStartedTotal,
         sharedTagDemand,

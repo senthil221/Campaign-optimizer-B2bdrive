@@ -190,7 +190,10 @@ export interface CampaignComputed {
 
 /** A tag's volume joined with the demand of campaigns mapped to it. */
 export interface TagForecast extends TagVolume {
+  /** Count of ACTIVE campaigns mapped to this tag — drives the forecast. */
   mappedCampaigns: number
+  /** Count of PAUSED campaigns mapped to this tag (excluded from forecast). */
+  pausedCampaigns: number
   /** Sum of leadStats.total across every campaign mapped to this tag. */
   leadsTotal: number
   /** Sum of leadStats.notStarted across every campaign mapped to this tag. */
