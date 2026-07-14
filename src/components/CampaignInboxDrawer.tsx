@@ -36,9 +36,52 @@ function initials(name: string, email: string): string {
   return (a + b).toUpperCase()
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * Render email content faithfully but safely. The HTML comes from external
+ * senders, so it goes into a sandboxed iframe (no scripts, no same-origin
+ * access) on the white background emails are designed for. Falls back to
+ * escaped plain text when there's no HTML body.
+ */
+function SafeHtmlFrame({
+  html,
+  text,
+  className = '',
+}: {
+  html: string
+  text: string
+  className?: string
+}) {
+  const body = html.trim()
+    ? html
+    : `<pre style="white-space:pre-wrap;font-family:system-ui,sans-serif;margin:0">${escapeHtml(text)}</pre>`
+  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>html,body{margin:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.55;color:#1a1a1a;background:#fff;padding:16px;word-wrap:break-word;overflow-wrap:anywhere}img{max-width:100%;height:auto}a{color:#2563eb}table{max-width:100%}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #e2e2e2;color:#555}</style></head><body>${body}</body></html>`
+  return (
+    <iframe
+      title="Email content"
+      // Empty sandbox = maximally locked down: scripts disabled, no parent access.
+      sandbox=""
+      srcDoc={srcDoc}
+      className={`w-full rounded-lg border border-line-soft bg-white ${className}`}
+    />
+  )
+}
+
 // A prospect's reply. Collapsed shows a one-line snippet; expanded shows the
 // message we sent and the full reply thread side by side.
-function ReplyCard({ r }: { r: InboxReply }) {
+function ReplyCard({
+  r,
+  onFullscreen,
+}: {
+  r: InboxReply
+  onFullscreen: () => void
+}) {
   const [open, setOpen] = useState(false)
   return (
     <div
@@ -102,19 +145,85 @@ function ReplyCard({ r }: { r: InboxReply }) {
             </div>
           </div>
           <div>
-            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
-              Reply · {fmtTime(r.replyTime)}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
+                Reply · {fmtTime(r.replyTime)}
+              </div>
+              <button
+                onClick={onFullscreen}
+                title="Open the full reply in a larger view"
+                className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-medium text-faint transition hover:border-lime/40 hover:text-lime"
+              >
+                <span className="leading-none">⛶</span> Full screen
+              </button>
             </div>
             <div className="mb-1 truncate text-[11px] text-faint" title={r.leadEmail}>
               from {r.leadEmail || '—'}
             </div>
             <div className="max-h-56 overflow-auto whitespace-pre-line rounded-lg border border-lime/15 bg-lime/[0.03] px-3 py-2 text-[12px] leading-relaxed text-ink/90">
-              {r.replyText || r.replySnippet || '(no text)'}
+              {r.replySnippet || r.replyText || '(no text)'}
             </div>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Full-screen reader for one reply: renders the real email HTML (sent + reply)
+// in sandboxed frames so nothing is compressed or lost.
+function ReplyFullScreen({ r, onClose }: { r: InboxReply; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-8">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex h-full max-h-[900px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0">
+            <div className="truncate font-display text-[15px] font-semibold text-ink">
+              {r.subject || '(no subject)'}
+            </div>
+            <div className="mt-0.5 truncate text-[12px] text-faint">
+              {(r.leadName ? `${r.leadName} · ` : '') + (r.leadEmail || '')} · Email{' '}
+              {r.seqNumber || '?'} · replied {fmtTime(r.replyTime)}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close full screen"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-line text-faint transition hover:bg-white/[0.04] hover:text-ink"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Two panes: sent + reply, each a real rendered email */}
+        <div className="grid min-h-0 flex-1 grid-rows-2 gap-4 overflow-auto p-4 lg:grid-cols-2 lg:grid-rows-1">
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
+              <span className="h-1.5 w-1.5 rounded-full bg-faint/60" />
+              Sent · {fmtTime(r.sentTime)} · from {r.fromEmail || '—'}
+            </div>
+            <SafeHtmlFrame html={r.sentHtml} text={r.sentBody} className="min-h-0 flex-1" />
+          </div>
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
+              Reply · {fmtTime(r.replyTime)} · from {r.leadEmail || '—'}
+            </div>
+            <SafeHtmlFrame html={r.replyHtml} text={r.replyText} className="min-h-0 flex-1" />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -131,6 +240,7 @@ export default function CampaignInboxDrawer({
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
+  const [fullscreen, setFullscreen] = useState<InboxReply | null>(null)
 
   // Identity of the current open request, so a stale response can't land after
   // the user re-opens the drawer on a different row.
@@ -165,17 +275,19 @@ export default function CampaignInboxDrawer({
     [fetchInbox],
   )
 
-  // (Re)load whenever the target changes.
+  // (Re)load whenever the target changes; drop any open full-screen reader.
   useEffect(() => {
     if (!query) return
+    setFullscreen(null)
     void load(query, 0)
   }, [query, load])
 
-  // Esc to close + lock body scroll while open.
+  // Esc to close + lock body scroll while open. When the full-screen reader is
+  // open it owns Esc (closes itself first), so the drawer ignores it.
   useEffect(() => {
     if (!query) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !fullscreen) onClose()
     }
     document.addEventListener('keydown', onKey)
     const prevOverflow = document.body.style.overflow
@@ -184,7 +296,7 @@ export default function CampaignInboxDrawer({
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = prevOverflow
     }
-  }, [query, onClose])
+  }, [query, onClose, fullscreen])
 
   if (!query) return null
 
@@ -250,7 +362,9 @@ export default function CampaignInboxDrawer({
 
           {!loading &&
             !error &&
-            replies.map((r) => <ReplyCard key={r.id} r={r} />)}
+            replies.map((r) => (
+              <ReplyCard key={r.id} r={r} onFullscreen={() => setFullscreen(r)} />
+            ))}
 
           {!loading && !error && hasMore && (
             <button
@@ -263,6 +377,10 @@ export default function CampaignInboxDrawer({
           )}
         </div>
       </aside>
+
+      {fullscreen && (
+        <ReplyFullScreen r={fullscreen} onClose={() => setFullscreen(null)} />
+      )}
     </div>
   )
 }

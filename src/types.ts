@@ -269,8 +269,12 @@ export interface InboxReply {
   replySnippet: string
   /** Full reply text including any quoted thread. */
   replyText: string
+  /** Original reply HTML (rendered in a sandboxed frame for full fidelity). */
+  replyHtml: string
   /** Plain-text of the email we originally sent this lead. */
   sentBody: string
+  /** Original sent-email HTML. */
+  sentHtml: string
   isBounced: boolean
   isOpened: boolean
   isClicked: boolean
