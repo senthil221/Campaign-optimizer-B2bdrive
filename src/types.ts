@@ -237,6 +237,8 @@ export interface SequenceStat {
   id: number
   seqNumber: number
   variantLabel: string | null
+  /** Variant id used to scope the inbox to this exact sequence/variant. */
+  seqVariantId: number
   sent: number
   replied: number
   positiveReplies: number
@@ -244,6 +246,34 @@ export interface SequenceStat {
   senderBounced: number
   opened: number
   clicked: number
+}
+
+/**
+ * One replied lead from the campaign inbox (email_campaign_stats). Flattened
+ * from the nested reply_message_details / email_details payloads.
+ */
+export interface InboxReply {
+  id: string
+  /** Prospect's display name (first + last), best-effort. */
+  leadName: string
+  /** Prospect's email address. */
+  leadEmail: string
+  /** Our sending inbox the reply came back to. */
+  fromEmail: string
+  /** 1-based sequence step this reply is against. */
+  seqNumber: number
+  sentTime: string | null
+  replyTime: string | null
+  subject: string
+  /** Clean reply text (just the new message, quoted thread stripped). */
+  replySnippet: string
+  /** Full reply text including any quoted thread. */
+  replyText: string
+  /** Plain-text of the email we originally sent this lead. */
+  sentBody: string
+  isBounced: boolean
+  isOpened: boolean
+  isClicked: boolean
 }
 
 /** campaign_id (string) -> tag_name */

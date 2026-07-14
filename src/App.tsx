@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Campaign, CampaignTagMap, EmailAccount } from './types'
 import {
+  fetchCampaignInbox,
   fetchCampaignSequences,
   fetchEmailAccounts,
   loadCampaigns,
   updateCampaignStatus,
   updateMaxLeadsPerDay,
   type CampaignStatusAction,
+  type InboxQuery,
 } from './services/smartlead'
 import {
   buildCampaignPerformance,
@@ -35,7 +37,6 @@ const allVisible = (cols: readonly { id: string }[]): Record<string, boolean> =>
   Object.fromEntries(cols.map((c) => [c.id, true]))
 const DEFAULT_PERF_COLUMNS: Record<string, boolean> = {
   ...allVisible(PERF_COLUMNS),
-  replied: false,
   ooo: false,
   status: false,
 }
@@ -204,6 +205,11 @@ export default function App() {
     [],
   )
 
+  const fetchInbox = useCallback(
+    (query: InboxQuery) => fetchCampaignInbox('', query),
+    [],
+  )
+
   return (
     <div className="min-h-full">
       <Header
@@ -268,6 +274,7 @@ export default function App() {
           onUpdateMaxLeads={handleUpdateMaxLeads}
           onUpdateStatus={handleUpdateStatus}
           fetchSequences={fetchSequences}
+          fetchInbox={fetchInbox}
           visibleCols={visibleCols}
           onColumnsChange={setVisibleCols}
         />

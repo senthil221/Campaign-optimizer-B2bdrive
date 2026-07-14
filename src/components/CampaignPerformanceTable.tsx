@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { CampaignPerformance, SequenceStat } from '../types'
-import type { CampaignStatusAction } from '../services/smartlead'
+import type { CampaignPerformance, InboxReply, SequenceStat } from '../types'
+import type { CampaignStatusAction, InboxQuery } from '../services/smartlead'
+import CampaignInboxDrawer from './CampaignInboxDrawer'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
 import StatusFilter, { type StatusOption } from './StatusFilter'
@@ -38,8 +39,16 @@ interface Props {
   onUpdateMaxLeads: (campaignId: number, value: number) => Promise<void>
   onUpdateStatus: (campaignId: number, action: CampaignStatusAction) => Promise<void>
   fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
+  fetchInbox: (query: InboxQuery) => Promise<InboxReply[]>
   visibleCols: Record<string, boolean>
   onColumnsChange: (next: Record<string, boolean>) => void
+}
+
+/** A campaign/sequence target for the inbox drawer. */
+interface InboxTarget {
+  query: InboxQuery
+  label: string
+  totalReplied: number
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -108,14 +117,18 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
 }
 
 // A metric shown as a percentage of sent, with the raw count as a faint hint.
+// When onClick is given and count > 0, the count becomes a button that opens
+// the inbox for those replies.
 function RateCell({
   count,
   rate,
   tone,
+  onClick,
 }: {
   count: number
   rate: number
   tone: 'muted' | 'faint' | 'positive' | 'critical'
+  onClick?: () => void
 }) {
   const color =
     tone === 'critical'
@@ -129,9 +142,21 @@ function RateCell({
         : tone === 'muted'
           ? 'text-ink'
           : 'text-faint'
+  const clickable = onClick && count > 0
   return (
     <td className={`${TD} text-right`}>
-      <span className={`font-semibold ${color}`}>{fmt(count)}</span>{' '}
+      {clickable ? (
+        <button
+          type="button"
+          onClick={onClick}
+          title="View replies"
+          className={`font-semibold underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime ${color}`}
+        >
+          {fmt(count)}
+        </button>
+      ) : (
+        <span className={`font-semibold ${color}`}>{fmt(count)}</span>
+      )}{' '}
       <span className="text-[11px] text-faint">({pct(rate)})</span>
     </td>
   )
@@ -279,7 +304,13 @@ function ActionCell({
 }
 
 // Per-variant analytics shown when a campaign row is expanded.
-function SequenceBreakdown({ state }: { state: SeqState | undefined }) {
+function SequenceBreakdown({
+  state,
+  onOpenInbox,
+}: {
+  state: SeqState | undefined
+  onOpenInbox: (seq: SequenceStat) => void
+}) {
   if (!state || state.loading) {
     return (
       <div className="space-y-1.5 px-6 py-4">
@@ -328,7 +359,18 @@ function SequenceBreakdown({ state }: { state: SeqState | undefined }) {
                 <td className={`${SD} font-medium text-ink`}>{label}</td>
                 <td className={`${SD} text-right text-ink`}>{fmt(s.sent)}</td>
                 <td className={`${SD} text-right text-muted`}>
-                  {fmt(s.replied)}{' '}
+                  {s.replied > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenInbox(s)}
+                      title="View replies for this variant"
+                      className="font-medium text-muted underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime"
+                    >
+                      {fmt(s.replied)}
+                    </button>
+                  ) : (
+                    fmt(s.replied)
+                  )}{' '}
                   <span className="text-faint">({pct(ratio(s.replied, s.sent))})</span>
                 </td>
                 <td className={`${SD} text-right ${s.positiveReplies > 0 ? 'text-positive' : 'text-faint'}`}>
@@ -358,10 +400,12 @@ export default function CampaignPerformanceTable({
   onUpdateMaxLeads,
   onUpdateStatus,
   fetchSequences,
+  fetchInbox,
   visibleCols,
   onColumnsChange,
 }: Props) {
   const [search, setSearch] = useState('')
+  const [inbox, setInbox] = useState<InboxTarget | null>(null)
   const [tagFilter, setTagFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>(() => loadStatusFilter())
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
@@ -631,7 +675,18 @@ export default function CampaignPerformanceTable({
                     <td className={`${TD} text-right font-semibold text-ink`}>{fmt(r.sent)}</td>
                   )}
                   {show('replied') && (
-                    <RateCell count={r.replied} rate={r.repliedRate} tone="muted" />
+                    <RateCell
+                      count={r.replied}
+                      rate={r.repliedRate}
+                      tone="muted"
+                      onClick={() =>
+                        setInbox({
+                          query: { campaignId: c.campaignId },
+                          label: c.campaignName,
+                          totalReplied: r.replied,
+                        })
+                      }
+                    />
                   )}
                   {show('ooo') && (
                     <RateCell count={r.oooReplied} rate={r.oooRate} tone="faint" />
@@ -683,7 +738,21 @@ export default function CampaignPerformanceTable({
                 {isOpen && (
                   <tr>
                     <td colSpan={colCount} className="p-0">
-                      <SequenceBreakdown state={seqCache[c.campaignId]} />
+                      <SequenceBreakdown
+                        state={seqCache[c.campaignId]}
+                        onOpenInbox={(s) =>
+                          setInbox({
+                            query: {
+                              campaignId: c.campaignId,
+                              variantId: s.seqVariantId || undefined,
+                            },
+                            label: `${c.campaignName} · Email ${s.seqNumber}${
+                              s.variantLabel ? ` – ${s.variantLabel}` : ''
+                            }`,
+                            totalReplied: s.replied,
+                          })
+                        }
+                      />
                     </td>
                   </tr>
                 )}
@@ -693,6 +762,14 @@ export default function CampaignPerformanceTable({
           </tbody>
         </table>
       </div>
+
+      <CampaignInboxDrawer
+        query={inbox?.query ?? null}
+        label={inbox?.label ?? ''}
+        totalReplied={inbox?.totalReplied}
+        onClose={() => setInbox(null)}
+        fetchInbox={fetchInbox}
+      />
     </section>
   )
 }

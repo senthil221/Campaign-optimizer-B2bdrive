@@ -3,6 +3,7 @@ import type {
   CampaignListEntry,
   CampaignOverview,
   EmailAccount,
+  InboxReply,
   LoadCampaignsResult,
   RawCampaignAnalytics,
   RawCampaignOverview,
@@ -21,6 +22,7 @@ const CAMPAIGN_OVERVIEW_URL = '/api/campaign-overview'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
+const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -642,6 +644,7 @@ export async function fetchCampaignSequences(
       id: num(o.id, 0),
       seqNumber: num(o.seq_number, 0),
       variantLabel: label != null && String(label).trim() ? String(label) : null,
+      seqVariantId: num(o.seq_variant_id, 0),
       sent: num(o.sent_count, 0),
       replied: num(o.reply_count, 0),
       positiveReplies: num(o.positive_reply_count, 0),
@@ -651,6 +654,120 @@ export async function fetchCampaignSequences(
       clicked: num(o.click_count, 0),
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Campaign inbox (replied leads, lazy — on clicking a Replied count)
+// ---------------------------------------------------------------------------
+
+/** Collapse email HTML to readable plain text (entities + tags stripped). */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}
+
+function normalizeInboxReply(raw: Record<string, unknown>): InboxReply {
+  const rmd = (raw?.reply_message_details ?? {}) as Record<string, unknown>
+  const ed = (raw?.email_details ?? {}) as Record<string, unknown>
+
+  const first = String(ed?.firstName ?? '').trim()
+  const last = String(ed?.lastName ?? '').trim()
+  const leadName = [first, last].filter(Boolean).join(' ')
+
+  // Prefer Smartlead's cleaned "visibleText" (just the new reply); fall back to
+  // the raw text, then to the HTML rendition collapsed to text.
+  const visible = String(rmd?.visibleText ?? '').trim()
+  const rawText = String(rmd?.text ?? '').trim()
+  const htmlText = rmd?.textAsHtml ? htmlToText(String(rmd.textAsHtml)) : ''
+  const replyText = rawText || htmlText
+  const replySnippet = visible || replyText
+
+  const subject =
+    (rmd?.subject != null && String(rmd.subject).trim()) ||
+    (raw?.custom_subject != null && String(raw.custom_subject).trim()) ||
+    ''
+
+  const sentBody = raw?.custom_email_message
+    ? htmlToText(String(raw.custom_email_message))
+    : ''
+
+  return {
+    id: String(raw?.id ?? ''),
+    leadName,
+    leadEmail: String(ed?.email ?? '').trim(),
+    fromEmail: String(ed?.from ?? '').trim(),
+    seqNumber: num(ed?.emailSeqNumber, 0),
+    sentTime: raw?.sent_time ? String(raw.sent_time) : null,
+    replyTime: raw?.reply_time ? String(raw.reply_time) : null,
+    subject,
+    replySnippet,
+    replyText,
+    sentBody,
+    isBounced: raw?.is_bounced === true,
+    isOpened: raw?.is_opened === true,
+    isClicked: raw?.is_clicked === true,
+  }
+}
+
+export interface InboxQuery {
+  campaignId: number
+  offset?: number
+  limit?: number
+  /** Restrict to one sequence step (email_campaign_seq_id). */
+  seqId?: number
+  /** Restrict to one A/B variant (seq_variant_id). */
+  variantId?: number
+}
+
+/**
+ * Fetch one page of replied leads for a campaign (optionally scoped to a single
+ * sequence variant). Ordered newest reply first, matching Smartlead's Inbox.
+ */
+export async function fetchCampaignInbox(
+  jwt: string,
+  query: InboxQuery,
+): Promise<InboxReply[]> {
+  const res = await fetch(CAMPAIGN_INBOX_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      campaignId: query.campaignId,
+      offset: query.offset ?? 0,
+      limit: query.limit ?? 20,
+      seqId: query.seqId,
+      variantId: query.variantId,
+    }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Inbox request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Inbox response was not JSON. Response: ${preview(text)}`)
+  }
+  const obj = json as Record<string, unknown>
+  if (Array.isArray(obj?.errors) && obj.errors.length) {
+    throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
+  }
+  const rows = extractArray(json, ['email_campaign_stats'])
+  if (!rows) return []
+  return rows.map((r) => normalizeInboxReply((r ?? {}) as Record<string, unknown>))
 }
 
 // ---------------------------------------------------------------------------
