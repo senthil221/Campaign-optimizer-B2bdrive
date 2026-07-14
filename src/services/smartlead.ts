@@ -640,10 +640,12 @@ export async function fetchCampaignSequences(
   return rows.map((r) => {
     const o = (r ?? {}) as Record<string, unknown>
     const label = o.variant_label
+    const mapping = (o.email_campaign_seq_mapping ?? {}) as Record<string, unknown>
     return {
       id: num(o.id, 0),
       seqNumber: num(o.seq_number, 0),
       variantLabel: label != null && String(label).trim() ? String(label) : null,
+      emailCampaignSeqId: num(mapping.id, 0),
       seqVariantId: num(o.seq_variant_id, 0),
       sent: num(o.sent_count, 0),
       replied: num(o.reply_count, 0),

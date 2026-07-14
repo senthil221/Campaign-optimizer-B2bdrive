@@ -237,6 +237,11 @@ export interface SequenceStat {
   id: number
   seqNumber: number
   variantLabel: string | null
+  /**
+   * Sequence-step id (email_campaign_seq_id). Always present, so it scopes the
+   * inbox even for single-variant steps where seqVariantId is null.
+   */
+  emailCampaignSeqId: number
   /** Variant id used to scope the inbox to this exact sequence/variant. */
   seqVariantId: number
   sent: number

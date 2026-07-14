@@ -744,6 +744,7 @@ export default function CampaignPerformanceTable({
                           setInbox({
                             query: {
                               campaignId: c.campaignId,
+                              seqId: s.emailCampaignSeqId || undefined,
                               variantId: s.seqVariantId || undefined,
                             },
                             label: `${c.campaignName} · Email ${s.seqNumber}${

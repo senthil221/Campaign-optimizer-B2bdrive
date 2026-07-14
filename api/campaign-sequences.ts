@@ -22,6 +22,9 @@ const SEQUENCE_QUERY = `query getCampaignSequenceAnalyticsById($args: grouped_em
     variant_label
     seq_variant_id
     positive_reply_count
+    email_campaign_seq_mapping {
+      id
+    }
     __typename
   }
 }`
