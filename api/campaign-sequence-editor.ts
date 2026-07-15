@@ -58,7 +58,6 @@ interface CamelVariant {
   subject: string
   emailBody: string
   isDeleted: boolean
-  [k: string]: unknown
 }
 interface CamelSequence {
   id: number
@@ -68,20 +67,26 @@ interface CamelSequence {
   seqScheduleType: string
   variantDistributionType: string
   seqVariants: CamelVariant[]
-  [k: string]: unknown
 }
 
 /**
- * Normalize one raw sequence (snake_case v1 OR camelCase internal) into the
- * exact camelCase shape the add-sequence-list-to-campaign endpoint expects.
- * Unknown extra keys on the source are preserved so nothing Smartlead needs is
- * dropped on the round-trip.
+ * Normalize one raw sequence (snake_case v1, or the internal shape which nests
+ * variants under `sequence_variants`) into the EXACT camelCase payload the
+ * add-sequence-list-to-campaign endpoint expects — nothing more, so no stale
+ * keys ride along on save. HTML, {{variables}} and {spintax} pass through
+ * verbatim as plain strings.
  */
 function toCamelSequence(raw: Any): CamelSequence {
   const delaySrc = (pick<Any>(raw, 'seqDelayDetails', 'seq_delay_details') ?? {}) as Any
-  const variantsSrc = (pick<Any[]>(raw, 'seqVariants', 'seq_variants') ?? []) as Any[]
+  // Variants live under different keys depending on the source endpoint:
+  //   internal → `sequence_variants`, v1 → `seq_variants`, save shape → `seqVariants`.
+  const variantsSrc = (pick<Any[]>(
+    raw,
+    'seqVariants',
+    'sequence_variants',
+    'seq_variants',
+  ) ?? []) as Any[]
   return {
-    ...raw,
     id: Number(pick<number>(raw, 'id') ?? 0),
     seqNumber: Number(pick<number>(raw, 'seqNumber', 'seq_number') ?? 0),
     seqType: String(pick<string>(raw, 'seqType', 'seq_type') ?? 'EMAIL'),
@@ -98,7 +103,6 @@ function toCamelSequence(raw: Any): CamelSequence {
     seqVariants: variantsSrc.map((v) => {
       const label = pick<string>(v, 'variantLabel', 'variant_label')
       return {
-        ...v,
         id: Number(pick<number>(v, 'id') ?? 0),
         variantLabel: label != null && String(label).trim() ? String(label) : null,
         subject: String(pick<string>(v, 'subject') ?? ''),
