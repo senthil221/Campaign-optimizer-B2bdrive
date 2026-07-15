@@ -4,12 +4,15 @@ import {
   fetchCampaignInbox,
   fetchCampaignSequences,
   fetchEmailAccounts,
+  fetchSequenceEditor,
   loadCampaigns,
+  saveSequenceEdit,
   updateCampaignStatus,
   updateMaxLeadsPerDay,
   type CampaignStatusAction,
   type InboxQuery,
 } from './services/smartlead'
+import type { SequenceEditRequest } from './types'
 import {
   buildCampaignPerformance,
   buildTagForecasts,
@@ -210,6 +213,16 @@ export default function App() {
     [],
   )
 
+  const fetchEditor = useCallback(
+    (campaignId: number) => fetchSequenceEditor('', campaignId),
+    [],
+  )
+
+  const saveEdit = useCallback(
+    (req: SequenceEditRequest) => saveSequenceEdit('', req),
+    [],
+  )
+
   return (
     <div className="min-h-full">
       <Header
@@ -275,6 +288,8 @@ export default function App() {
           onUpdateStatus={handleUpdateStatus}
           fetchSequences={fetchSequences}
           fetchInbox={fetchInbox}
+          fetchSequenceEditor={fetchEditor}
+          saveSequenceEdit={saveEdit}
           visibleCols={visibleCols}
           onColumnsChange={setVisibleCols}
         />

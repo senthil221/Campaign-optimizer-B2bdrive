@@ -285,6 +285,68 @@ export interface InboxReply {
   isClicked: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Sequence editor (live campaign sequences: enable/disable + edit copy)
+// ---------------------------------------------------------------------------
+
+/** Raw variant as returned by GET /api/email-campaigns/{id}/sequences. */
+export interface RawSeqVariant {
+  id?: number | null
+  variantLabel?: string | null
+  subject?: string | null
+  emailBody?: string | null
+  isDeleted?: boolean | null
+}
+
+/** Raw sequence step from the same endpoint. */
+export interface RawSequenceStep {
+  id?: number | null
+  seqNumber?: number | null
+  seqType?: string | null
+  seqDelayDetails?: { delayInDays?: number | null } | null
+  seqVariants?: RawSeqVariant[] | null
+}
+
+/** One A/B/C variant of a sequence step, normalized for editing. */
+export interface EditableVariant {
+  /** seq_variant id — the stable key used to target this variant on save. */
+  id: number
+  variantLabel: string | null
+  subject: string
+  /** Raw Smartlead HTML (with {{variables}} and {spintax}) — preserved verbatim. */
+  emailBody: string
+  /** True = disabled in Smartlead (isDeleted). Toggling flips this. */
+  isDeleted: boolean
+}
+
+/** One sequence step (email in the drip), normalized for editing. */
+export interface EditableSequence {
+  /** email_campaign_seq id — targets this step on save. */
+  id: number
+  seqNumber: number
+  seqType: string
+  delayInDays: number
+  variants: EditableVariant[]
+}
+
+/** The full editable sequence payload for one campaign. */
+export interface CampaignSequencePayload {
+  campaignId: number
+  sequences: EditableSequence[]
+}
+
+/** Delta sent to the save endpoint — never the whole payload, never raw IDs guessed. */
+export interface SequenceEditRequest {
+  campaignId: number
+  sequenceId: number
+  variantId?: number
+  subject?: string
+  emailBody?: string
+  /** enabled:true → isDeleted:false, enabled:false → isDeleted:true. */
+  enabled?: boolean
+  delayInDays?: number
+}
+
 /** campaign_id (string) -> tag_name */
 export type CampaignTagMap = Record<string, string>
 

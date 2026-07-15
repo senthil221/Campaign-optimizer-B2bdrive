@@ -1,7 +1,14 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { CampaignPerformance, InboxReply, SequenceStat } from '../types'
+import type {
+  CampaignPerformance,
+  CampaignSequencePayload,
+  InboxReply,
+  SequenceEditRequest,
+  SequenceStat,
+} from '../types'
 import type { CampaignStatusAction, InboxQuery } from '../services/smartlead'
 import CampaignInboxDrawer from './CampaignInboxDrawer'
+import SequenceEditor from './SequenceEditor'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
 import StatusFilter, { type StatusOption } from './StatusFilter'
@@ -40,6 +47,8 @@ interface Props {
   onUpdateStatus: (campaignId: number, action: CampaignStatusAction) => Promise<void>
   fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
   fetchInbox: (query: InboxQuery) => Promise<InboxReply[]>
+  fetchSequenceEditor: (campaignId: number) => Promise<CampaignSequencePayload>
+  saveSequenceEdit: (req: SequenceEditRequest) => Promise<CampaignSequencePayload>
   visibleCols: Record<string, boolean>
   onColumnsChange: (next: Record<string, boolean>) => void
 }
@@ -49,6 +58,12 @@ interface InboxTarget {
   query: InboxQuery
   label: string
   totalReplied: number
+}
+
+/** The campaign whose sequences are open in the editor. */
+interface EditorTarget {
+  campaignId: number
+  campaignName: string
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -401,11 +416,14 @@ export default function CampaignPerformanceTable({
   onUpdateStatus,
   fetchSequences,
   fetchInbox,
+  fetchSequenceEditor,
+  saveSequenceEdit,
   visibleCols,
   onColumnsChange,
 }: Props) {
   const [search, setSearch] = useState('')
   const [inbox, setInbox] = useState<InboxTarget | null>(null)
+  const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [tagFilter, setTagFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>(() => loadStatusFilter())
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
@@ -617,8 +635,8 @@ export default function CampaignPerformanceTable({
                     isOpen ? 'bg-white/[0.03]' : ''
                   }`}
                 >
-                  <td className="max-w-[340px] px-4 py-1.5 pl-3 align-middle">
-                    <div className="flex items-center gap-2.5">
+                  <td className="max-w-[360px] px-4 py-1.5 pl-3 align-middle">
+                    <div className="group/name flex items-center gap-2.5">
                       <span title={leadBreakdownTitle(c)} className="shrink-0">
                         <ProgressRing percent={r.progressPercent} />
                       </span>
@@ -638,6 +656,26 @@ export default function CampaignPerformanceTable({
                         >
                           {c.campaignName}
                         </span>
+                      </button>
+                      <button
+                        onClick={() =>
+                          setEditor({
+                            campaignId: c.campaignId,
+                            campaignName: c.campaignName,
+                          })
+                        }
+                        title="Manage sequences — enable/disable variants and edit copy"
+                        aria-label={`Manage sequences for ${c.campaignName}`}
+                        className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-line text-faint opacity-0 transition hover:border-lime/40 hover:text-lime focus:opacity-100 group-hover/name:opacity-100"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path
+                            d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z"
+                            stroke="currentColor"
+                            strokeWidth="1.3"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
                       </button>
                     </div>
                   </td>
@@ -770,6 +808,14 @@ export default function CampaignPerformanceTable({
         totalReplied={inbox?.totalReplied}
         onClose={() => setInbox(null)}
         fetchInbox={fetchInbox}
+      />
+
+      <SequenceEditor
+        campaignId={editor?.campaignId ?? null}
+        campaignName={editor?.campaignName ?? ''}
+        onClose={() => setEditor(null)}
+        fetchEditor={fetchSequenceEditor}
+        saveEdit={saveSequenceEdit}
       />
     </section>
   )

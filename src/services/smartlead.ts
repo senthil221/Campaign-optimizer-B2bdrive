@@ -2,12 +2,18 @@ import type {
   Campaign,
   CampaignListEntry,
   CampaignOverview,
+  CampaignSequencePayload,
+  EditableSequence,
+  EditableVariant,
   EmailAccount,
   InboxReply,
   LoadCampaignsResult,
   RawCampaignAnalytics,
   RawCampaignOverview,
   RawEmailAccount,
+  RawSeqVariant,
+  RawSequenceStep,
+  SequenceEditRequest,
   SequenceStat,
 } from '../types'
 import { num } from '../utils/campaignCalculations'
@@ -21,6 +27,7 @@ const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 const CAMPAIGN_OVERVIEW_URL = '/api/campaign-overview'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
+const CAMPAIGN_SEQUENCE_EDITOR_URL = '/api/campaign-sequence-editor'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 
@@ -656,6 +663,125 @@ export async function fetchCampaignSequences(
       clicked: num(o.click_count, 0),
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Sequence editor (live campaign sequences: enable/disable + edit copy)
+// ---------------------------------------------------------------------------
+
+/** Pull the sequences array out of whichever envelope Smartlead/the proxy returns. */
+function extractSequenceSteps(json: unknown): RawSequenceStep[] | null {
+  if (Array.isArray(json)) return json as RawSequenceStep[]
+  if (!json || typeof json !== 'object') return null
+  const obj = json as Record<string, unknown>
+  if (Array.isArray(obj.sequences)) return obj.sequences as RawSequenceStep[]
+  const data = obj.data
+  if (Array.isArray(data)) return data as RawSequenceStep[]
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>
+    if (Array.isArray(d.sequences)) return d.sequences as RawSequenceStep[]
+  }
+  return null
+}
+
+function normalizeVariant(raw: RawSeqVariant): EditableVariant {
+  const label = raw?.variantLabel
+  return {
+    id: num(raw?.id, 0),
+    variantLabel: label != null && String(label).trim() ? String(label) : null,
+    subject: raw?.subject != null ? String(raw.subject) : '',
+    emailBody: raw?.emailBody != null ? String(raw.emailBody) : '',
+    isDeleted: raw?.isDeleted === true,
+  }
+}
+
+function normalizeSequenceStep(raw: RawSequenceStep, index: number): EditableSequence {
+  const variants = Array.isArray(raw?.seqVariants)
+    ? raw.seqVariants.map(normalizeVariant).filter((v) => v.id > 0)
+    : []
+  return {
+    id: num(raw?.id, 0),
+    seqNumber: num(raw?.seqNumber, index + 1),
+    seqType: raw?.seqType != null ? String(raw.seqType) : 'EMAIL',
+    delayInDays: num(raw?.seqDelayDetails?.delayInDays, 0),
+    variants,
+  }
+}
+
+/** Normalize a raw sequences payload into the editable model. */
+export function normalizeSequencePayload(
+  campaignId: number,
+  json: unknown,
+): CampaignSequencePayload {
+  const steps = extractSequenceSteps(json) ?? []
+  const sequences = steps
+    .map((s, i) => normalizeSequenceStep(s, i))
+    .filter((s) => s.id > 0)
+    .sort((a, b) => a.seqNumber - b.seqNumber)
+  return { campaignId, sequences }
+}
+
+/** Load the editable sequence payload for a campaign (subject/body/variants/delay). */
+export async function fetchSequenceEditor(
+  jwt: string,
+  campaignId: number,
+): Promise<CampaignSequencePayload> {
+  const res = await fetch(`${CAMPAIGN_SEQUENCE_EDITOR_URL}?id=${campaignId}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    let msg = preview(text)
+    try {
+      const j = JSON.parse(text) as Record<string, unknown>
+      if (j?.error) msg = String(j.error)
+    } catch {
+      /* keep raw preview */
+    }
+    throw new Error(`Sequence load failed (${res.status} ${res.statusText}). ${msg}`)
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Sequence response was not JSON. Response: ${preview(text)}`)
+  }
+  return normalizeSequencePayload(campaignId, json)
+}
+
+/**
+ * Save one change (toggle / subject / body / delay) to a single sequence or
+ * variant. The proxy re-reads the latest payload, mutates only the target by
+ * ID, submits the whole payload to Smartlead, then refetches to verify. The
+ * fresh, verified payload is returned so the caller can reconcile its UI.
+ */
+export async function saveSequenceEdit(
+  jwt: string,
+  req: SequenceEditRequest,
+): Promise<CampaignSequencePayload> {
+  const res = await fetch(CAMPAIGN_SEQUENCE_EDITOR_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify(req),
+  })
+  const text = await res.text()
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Save response was not JSON. Response: ${preview(text)}`)
+  }
+  const obj = (json ?? {}) as Record<string, unknown>
+  if (!res.ok || obj?.error) {
+    throw new Error(
+      obj?.error
+        ? String(obj.error)
+        : `Save failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  // The proxy returns { ok, payload } where payload is the refetched raw payload.
+  return normalizeSequencePayload(req.campaignId, obj.payload ?? null)
 }
 
 // ---------------------------------------------------------------------------
