@@ -12,6 +12,7 @@ import SequenceEditor from './SequenceEditor'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
 import StatusFilter, { type StatusOption } from './StatusFilter'
+import TagFilter from './TagFilter'
 import { loadStatusFilter, saveStatusFilter } from '../utils/storage'
 import { leadBreakdownTitle } from './ProgressBar'
 import { ProgressRing } from './ProgressRing'
@@ -424,7 +425,7 @@ export default function CampaignPerformanceTable({
   const [search, setSearch] = useState('')
   const [inbox, setInbox] = useState<InboxTarget | null>(null)
   const [editor, setEditor] = useState<EditorTarget | null>(null)
-  const [tagFilter, setTagFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState<string[]>([])
   const [statusFilter, setStatusFilter] = useState<string[]>(() => loadStatusFilter())
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: 'sent',
@@ -507,8 +508,10 @@ export default function CampaignPerformanceTable({
     const statusSet = new Set(statusFilter)
     return rows.filter((r) => {
       if (!statusSet.has(statusBucket(r.status))) return false
-      if (tagFilter === UNMAPPED && r.tagName) return false
-      if (tagFilter && tagFilter !== UNMAPPED && r.tagName !== tagFilter) return false
+      if (tagFilter.length > 0) {
+        const inSelection = r.tagName ? tagFilter.includes(r.tagName) : tagFilter.includes(UNMAPPED)
+        if (!inSelection) return false
+      }
       if (!q) return true
       return (
         r.campaign.campaignName.toLowerCase().includes(q) ||
@@ -555,17 +558,14 @@ export default function CampaignPerformanceTable({
         </div>
 
         {/* Tag filter */}
-        <select
-          value={tagFilter}
-          onChange={(e) => setTagFilter(e.target.value)}
-          className="h-8 rounded-lg border border-line bg-white/[0.03] px-2.5 text-[13px] text-muted outline-none transition focus:border-lime/40 focus:text-ink"
-        >
-          <option value="">All tags</option>
-          {tagOptions.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-          <option value={UNMAPPED}>Untagged</option>
-        </select>
+        <TagFilter
+          options={[
+            ...tagOptions.map((t) => ({ id: t, label: t })),
+            { id: UNMAPPED, label: 'Untagged' },
+          ]}
+          selected={tagFilter}
+          onChange={setTagFilter}
+        />
 
         <StatusFilter
           options={STATUS_OPTIONS}
