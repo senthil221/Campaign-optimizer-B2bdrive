@@ -1053,51 +1053,70 @@ export async function loadCampaigns(
     )
   }
 
-  // 4) Schedule caps (max new leads / day) — best-effort, never fatal.
-  try {
-    const scheduleMap = await fetchCampaignSchedules(jwt, ids)
-    for (const c of campaigns) {
-      const v = scheduleMap.get(c.campaignId)
-      if (v !== undefined) c.maxLeadsPerDay = v
+  // 4-6) Three independent, best-effort enrichment reads. They each touch only
+  //      `ids` and write a different campaign field (maxLeadsPerDay / overview /
+  //      generalSettings), so they run concurrently — the slow per-campaign
+  //      overview fetch now hides the two batched reads instead of blocking on
+  //      them. Each collects its own warnings so ordering below stays stable.
+  const scheduleStep = async (): Promise<string[]> => {
+    try {
+      const scheduleMap = await fetchCampaignSchedules(jwt, ids)
+      for (const c of campaigns) {
+        const v = scheduleMap.get(c.campaignId)
+        if (v !== undefined) c.maxLeadsPerDay = v
+      }
+      return []
+    } catch (e) {
+      return [
+        `Could not load max-leads/day from the schedule: ${e instanceof Error ? e.message : String(e)}`,
+      ]
     }
-  } catch (e) {
-    warnings.push(
-      `Could not load max-leads/day from the schedule: ${e instanceof Error ? e.message : String(e)}`,
-    )
   }
 
-  // 5) Per-campaign overview counters (deletion-proof progress) — best-effort.
-  //    Without this, progress falls back to completed/total, which collapses
-  //    once completed leads are deleted from a campaign.
-  try {
-    const overviewMap = await fetchCampaignOverviews(jwt, ids)
-    for (const c of campaigns) {
-      const ov = overviewMap.get(c.campaignId)
-      if (ov) c.overview = ov
+  // Deletion-proof progress counters. Without this, progress falls back to
+  // completed/total, which collapses once completed leads are deleted.
+  const overviewStep = async (): Promise<string[]> => {
+    try {
+      const overviewMap = await fetchCampaignOverviews(jwt, ids)
+      for (const c of campaigns) {
+        const ov = overviewMap.get(c.campaignId)
+        if (ov) c.overview = ov
+      }
+      if (overviewMap.size === 0 && campaigns.length > 0) {
+        return [
+          'Could not load campaign overview counters — progress may understate campaigns whose completed leads were deleted.',
+        ]
+      }
+      return []
+    } catch (e) {
+      return [
+        `Could not load campaign overview counters: ${e instanceof Error ? e.message : String(e)}`,
+      ]
     }
-    if (overviewMap.size === 0 && campaigns.length > 0) {
-      warnings.push(
-        'Could not load campaign overview counters — progress may understate campaigns whose completed leads were deleted.',
-      )
-    }
-  } catch (e) {
-    warnings.push(
-      `Could not load campaign overview counters: ${e instanceof Error ? e.message : String(e)}`,
-    )
   }
 
-  // 6) General settings (plain text / open & click tracking) — best-effort.
-  try {
-    const settingsMap = await fetchCampaignGeneralSettings(jwt, ids)
-    for (const c of campaigns) {
-      const s = settingsMap.get(c.campaignId)
-      if (s) c.generalSettings = s
+  // Plain text / open & click tracking flags.
+  const settingsStep = async (): Promise<string[]> => {
+    try {
+      const settingsMap = await fetchCampaignGeneralSettings(jwt, ids)
+      for (const c of campaigns) {
+        const s = settingsMap.get(c.campaignId)
+        if (s) c.generalSettings = s
+      }
+      return []
+    } catch (e) {
+      return [
+        `Could not load campaign general settings: ${e instanceof Error ? e.message : String(e)}`,
+      ]
     }
-  } catch (e) {
-    warnings.push(
-      `Could not load campaign general settings: ${e instanceof Error ? e.message : String(e)}`,
-    )
   }
+
+  const [scheduleWarns, overviewWarns, settingsWarns] = await Promise.all([
+    scheduleStep(),
+    overviewStep(),
+    settingsStep(),
+  ])
+  warnings.push(...scheduleWarns, ...overviewWarns, ...settingsWarns)
 
   return { campaigns, warnings, taggedCount, rawSample }
 }
