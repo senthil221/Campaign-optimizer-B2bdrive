@@ -1,37 +1,24 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-// Smartlead's internal REST API (same JWT bearer as get-all-campaigns et al.).
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
-// GET the editable sequence list for a campaign. This is the same request
-// Smartlead's own sequence editor fires when you open a campaign's Sequences tab.
-const listUrl = (campaignId: number) =>
+// Two ways to READ a campaign's sequences, tried in order until one returns
+// data. Both are normalized to the same camelCase save shape below, so it
+// doesn't matter which one answers.
+//   1) internal editor endpoint (JWT bearer, camelCase)
+//   2) public API endpoint (api_key, snake_case) — the documented fallback
+const internalListUrl = (campaignId: number) =>
   `${SMARTLEAD_BASE}/api/email-campaigns/${campaignId}/sequences`
+const v1ListUrl = (campaignId: number, apiKey: string) =>
+  `${SMARTLEAD_BASE}/api/v1/campaigns/${campaignId}/sequences?api_key=${encodeURIComponent(apiKey)}`
 
-// The exact save endpoint captured from DevTools when saving/toggling a
-// sequence in Smartlead (POST, JSON body { campaignId, sequences: [...] }).
+// The exact save endpoint captured from DevTools (POST, camelCase body).
 const SAVE_URL = `${SMARTLEAD_BASE}/api/email-campaigns/add-sequence-list-to-campaign`
 
 // ---------------------------------------------------------------------------
-// Loose shapes for the bits we mutate. Every other field on a sequence/variant
-// is preserved verbatim (we mutate the parsed objects in place), so Smartlead's
-// HTML, spintax and variables survive a round-trip untouched.
+// Loose shapes — every field is optional and read tolerantly (snake OR camel).
 // ---------------------------------------------------------------------------
-interface RawVariant {
-  id?: number
-  variantLabel?: string
-  subject?: string
-  emailBody?: string
-  isDeleted?: boolean
-  [k: string]: unknown
-}
-interface RawSequence {
-  id?: number
-  seqNumber?: number
-  seqDelayDetails?: { delayInDays?: number } | null
-  seqVariants?: RawVariant[]
-  [k: string]: unknown
-}
+type Any = Record<string, unknown>
 
 function preview(value: unknown, max = 600): string {
   let s: string
@@ -43,63 +30,185 @@ function preview(value: unknown, max = 600): string {
   return s.length > max ? `${s.slice(0, max)}… (truncated)` : s
 }
 
-/**
- * Dig the sequences array out of whichever envelope Smartlead returns:
- * a bare array, { sequences }, { data: [...] }, or { data: { sequences } }.
- */
-function extractSequences(json: unknown): RawSequence[] | null {
-  if (Array.isArray(json)) return json as RawSequence[]
+function pick<T>(o: Any, ...keys: string[]): T | undefined {
+  for (const k of keys) {
+    if (o[k] !== undefined && o[k] !== null) return o[k] as T
+  }
+  return undefined
+}
+
+/** Dig the sequences array out of whatever envelope either endpoint returns. */
+function extractRawSequences(json: unknown): Any[] | null {
+  if (Array.isArray(json)) return json as Any[]
   if (!json || typeof json !== 'object') return null
-  const obj = json as Record<string, unknown>
-  if (Array.isArray(obj.sequences)) return obj.sequences as RawSequence[]
+  const obj = json as Any
+  if (Array.isArray(obj.sequences)) return obj.sequences as Any[]
   const data = obj.data
-  if (Array.isArray(data)) return data as RawSequence[]
+  if (Array.isArray(data)) return data as Any[]
   if (data && typeof data === 'object') {
-    const d = data as Record<string, unknown>
-    if (Array.isArray(d.sequences)) return d.sequences as RawSequence[]
+    const d = data as Any
+    if (Array.isArray(d.sequences)) return d.sequences as Any[]
   }
   return null
 }
 
-async function fetchSequences(
+interface CamelVariant {
+  id: number
+  variantLabel: string | null
+  subject: string
+  emailBody: string
+  isDeleted: boolean
+  [k: string]: unknown
+}
+interface CamelSequence {
+  id: number
+  seqNumber: number
+  seqType: string
+  seqDelayDetails: { delayInDays: number }
+  seqScheduleType: string
+  variantDistributionType: string
+  seqVariants: CamelVariant[]
+  [k: string]: unknown
+}
+
+/**
+ * Normalize one raw sequence (snake_case v1 OR camelCase internal) into the
+ * exact camelCase shape the add-sequence-list-to-campaign endpoint expects.
+ * Unknown extra keys on the source are preserved so nothing Smartlead needs is
+ * dropped on the round-trip.
+ */
+function toCamelSequence(raw: Any): CamelSequence {
+  const delaySrc = (pick<Any>(raw, 'seqDelayDetails', 'seq_delay_details') ?? {}) as Any
+  const variantsSrc = (pick<Any[]>(raw, 'seqVariants', 'seq_variants') ?? []) as Any[]
+  return {
+    ...raw,
+    id: Number(pick<number>(raw, 'id') ?? 0),
+    seqNumber: Number(pick<number>(raw, 'seqNumber', 'seq_number') ?? 0),
+    seqType: String(pick<string>(raw, 'seqType', 'seq_type') ?? 'EMAIL'),
+    seqDelayDetails: {
+      delayInDays: Number(pick<number>(delaySrc, 'delayInDays', 'delay_in_days') ?? 0),
+    },
+    seqScheduleType: String(
+      pick<string>(raw, 'seqScheduleType', 'seq_schedule_type') ?? 'AUTOMATIC',
+    ),
+    variantDistributionType: String(
+      pick<string>(raw, 'variantDistributionType', 'variant_distribution_type') ??
+        'MANUAL_EQUAL',
+    ),
+    seqVariants: variantsSrc.map((v) => {
+      const label = pick<string>(v, 'variantLabel', 'variant_label')
+      return {
+        ...v,
+        id: Number(pick<number>(v, 'id') ?? 0),
+        variantLabel: label != null && String(label).trim() ? String(label) : null,
+        subject: String(pick<string>(v, 'subject') ?? ''),
+        emailBody: String(pick<string>(v, 'emailBody', 'email_body') ?? ''),
+        isDeleted: pick<boolean>(v, 'isDeleted', 'is_deleted') === true,
+      }
+    }),
+  }
+}
+
+interface ReadResult {
+  sequences: CamelSequence[] | null
+  /** Diagnostics when nothing usable came back. */
+  debug: string[]
+}
+
+/**
+ * Read the latest sequences, trying the internal endpoint then the v1 endpoint,
+ * and return the first that yields a non-empty list (normalized to camelCase).
+ */
+async function readSequences(
   jwt: string,
+  apiKey: string,
   campaignId: number,
-): Promise<{ status: number; text: string }> {
-  const upstream = await fetch(listUrl(campaignId), {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${jwt}`, 'content-type': 'application/json' },
-  })
-  return { status: upstream.status, text: await upstream.text() }
+): Promise<ReadResult> {
+  const debug: string[] = []
+  let firstNonEmpty: CamelSequence[] | null = null
+
+  const attempts: { label: string; run: () => Promise<Response> }[] = []
+  if (jwt) {
+    attempts.push({
+      label: 'internal',
+      run: () =>
+        fetch(internalListUrl(campaignId), {
+          headers: { Authorization: `Bearer ${jwt}`, 'content-type': 'application/json' },
+        }),
+    })
+  }
+  if (apiKey) {
+    attempts.push({ label: 'v1', run: () => fetch(v1ListUrl(campaignId, apiKey)) })
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const res = await attempt.run()
+      const text = await res.text()
+      if (res.status < 200 || res.status >= 300) {
+        debug.push(`${attempt.label}: HTTP ${res.status} ${preview(text, 160)}`)
+        continue
+      }
+      let json: unknown
+      try {
+        json = JSON.parse(text)
+      } catch {
+        debug.push(`${attempt.label}: non-JSON ${preview(text, 160)}`)
+        continue
+      }
+      const rows = extractRawSequences(json)
+      if (!rows) {
+        debug.push(`${attempt.label}: no sequences array in ${preview(json, 200)}`)
+        continue
+      }
+      const camel = rows.map(toCamelSequence).filter((s) => s.id > 0)
+      if (camel.length > 0) return { sequences: camel, debug }
+      // Valid but empty — remember it, but keep trying other sources.
+      if (firstNonEmpty === null) firstNonEmpty = camel
+      debug.push(`${attempt.label}: returned 0 sequences`)
+    } catch (e) {
+      debug.push(`${attempt.label}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  return { sequences: firstNonEmpty, debug }
 }
 
 // GET  /api/campaign-sequence-editor?id=<campaignId>
-//        → the editable sequence payload (pass-through, for the client to render)
+//        → { campaignId, sequences: [...camelCase...] } (+ _debug when empty)
 // POST /api/campaign-sequence-editor
 //        { campaignId, sequenceId, variantId?, subject?, emailBody?, enabled?, delayInDays? }
-//        → server-side read-modify-write: fetch latest, mutate only the target
-//          sequence/variant by ID, POST the whole payload back, then refetch to
-//          verify. Returns { payload } with the fresh, saved sequences.
+//        → read latest → mutate only the target by ID → POST full payload to
+//          add-sequence-list-to-campaign → refetch to verify → { ok, payload }
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const jwt =
     process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
-  if (!jwt) {
+  const apiKey =
+    process.env.SMARTLEAD_API_KEY ||
+    (req.headers['x-smartlead-api-key'] as string) ||
+    ''
+
+  if (!jwt && !apiKey) {
     return res.status(400).json({
       error:
-        'No Smartlead JWT configured. Set SMARTLEAD_JWT in Vercel → Settings → Environment Variables.',
+        'No Smartlead credentials configured. Set SMARTLEAD_JWT (and optionally SMARTLEAD_API_KEY) in Vercel → Settings → Environment Variables.',
     })
   }
 
-  // ---- Read the current sequence list ------------------------------------
+  // ---- Read ---------------------------------------------------------------
   if (req.method === 'GET') {
     const id = Number(req.query.id)
     if (!Number.isFinite(id) || id <= 0) {
       return res.status(400).json({ error: 'Provide a numeric ?id=<campaignId>.' })
     }
     try {
-      const { status, text } = await fetchSequences(jwt, id)
-      res.status(status)
+      const { sequences, debug } = await readSequences(jwt, apiKey, id)
       res.setHeader('content-type', 'application/json; charset=utf-8')
-      return res.send(text)
+      return res.status(200).json({
+        campaignId: id,
+        sequences: sequences ?? [],
+        ...(sequences && sequences.length > 0 ? {} : { _debug: debug }),
+      })
     } catch (e) {
       return res.status(502).json({
         error: `Proxy failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -109,7 +218,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // ---- Save: read → modify only the target → write → verify --------------
   if (req.method === 'POST') {
-    const body = (req.body ?? {}) as Record<string, unknown>
+    if (!jwt) {
+      return res.status(400).json({
+        error: 'Saving requires SMARTLEAD_JWT (the add-sequence-list endpoint is JWT-based).',
+      })
+    }
+    const body = (req.body ?? {}) as Any
     const campaignId = Number(body.campaignId)
     const sequenceId = Number(body.sequenceId)
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
@@ -138,30 +252,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // 1) Fetch the LATEST sequence payload straight from Smartlead.
-      const current = await fetchSequences(jwt, campaignId)
-      if (current.status < 200 || current.status >= 300) {
-        return res.status(current.status).json({
-          error: `Could not load the current sequences before saving. Response: ${preview(current.text)}`,
-        })
-      }
-      let currentJson: unknown
-      try {
-        currentJson = JSON.parse(current.text)
-      } catch {
+      // 1) Fetch the LATEST sequence payload (normalized to camelCase).
+      const { sequences, debug } = await readSequences(jwt, apiKey, campaignId)
+      if (!sequences || sequences.length === 0) {
         return res.status(502).json({
-          error: `Current sequences response was not JSON. Response: ${preview(current.text)}`,
-        })
-      }
-      const sequences = extractSequences(currentJson)
-      if (!sequences) {
-        return res.status(502).json({
-          error: `Could not find a sequences array in Smartlead's response. Response: ${preview(currentJson)}`,
+          error: `Could not load the current sequences before saving. Tried: ${debug.join(' | ')}`,
         })
       }
 
-      // 2) Locate the target sequence by ID (never trust a client-sent index).
-      const seq = sequences.find((s) => Number(s?.id) === sequenceId)
+      // 2) Locate the target sequence by ID (never by index).
+      const seq = sequences.find((s) => s.id === sequenceId)
       if (!seq) {
         return res.status(404).json({
           error: `Sequence ${sequenceId} was not found in campaign ${campaignId}.`,
@@ -170,12 +270,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // 3) Apply ONLY the requested change to ONLY the matched target.
       if (hasDelay) {
-        const days = Math.max(0, Math.round(Number(body.delayInDays)))
-        seq.seqDelayDetails = { ...(seq.seqDelayDetails ?? {}), delayInDays: days }
+        seq.seqDelayDetails = {
+          ...seq.seqDelayDetails,
+          delayInDays: Math.max(0, Math.round(Number(body.delayInDays))),
+        }
       }
       if (hasVariant) {
-        const variants = Array.isArray(seq.seqVariants) ? seq.seqVariants : []
-        const variant = variants.find((v) => Number(v?.id) === variantId)
+        const variant = seq.seqVariants.find((v) => v.id === variantId)
         if (!variant) {
           return res.status(404).json({
             error: `Variant ${variantId} was not found in sequence ${sequenceId}.`,
@@ -202,9 +303,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           error: `Smartlead rejected the save. Response: ${preview(saveText)}`,
         })
       }
-      // Some Smartlead endpoints return 200 with an { error } / { ok:false } body.
       try {
-        const sj = JSON.parse(saveText) as Record<string, unknown>
+        const sj = JSON.parse(saveText) as Any
         if (sj?.error || sj?.ok === false) {
           return res
             .status(502)
@@ -214,19 +314,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Non-JSON 2xx is fine — Smartlead sometimes replies with a bare string.
       }
 
-      // 5) Refetch to VERIFY the change persisted, and return the fresh truth.
-      const verify = await fetchSequences(jwt, campaignId)
-      let payload: unknown = null
-      if (verify.status >= 200 && verify.status < 300) {
-        try {
-          payload = JSON.parse(verify.text)
-        } catch {
-          payload = null
-        }
-      }
-
+      // 5) Refetch to VERIFY and return the fresh, saved truth.
+      const verify = await readSequences(jwt, apiKey, campaignId)
       res.setHeader('content-type', 'application/json; charset=utf-8')
-      return res.status(200).json({ ok: true, payload })
+      return res.status(200).json({
+        ok: true,
+        payload: { campaignId, sequences: verify.sequences ?? sequences },
+      })
     } catch (e) {
       return res.status(502).json({
         error: `Save failed: ${e instanceof Error ? e.message : String(e)}`,
