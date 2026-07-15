@@ -1,5 +1,6 @@
 import type {
   Campaign,
+  CampaignGeneralSettings,
   CampaignListEntry,
   CampaignOverview,
   CampaignSequencePayload,
@@ -26,6 +27,7 @@ const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 const CAMPAIGN_OVERVIEW_URL = '/api/campaign-overview'
 const CAMPAIGN_SCHEDULE_URL = '/api/campaign-schedule'
+const CAMPAIGN_GENERAL_SETTINGS_URL = '/api/campaign-general-settings'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 const CAMPAIGN_SEQUENCE_EDITOR_URL = '/api/campaign-sequence-editor'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
@@ -199,6 +201,7 @@ export function normalizeCampaign(
     draftedCount: num(raw?.drafted_count, 0),
     status: String(nameInfo?.status ?? raw?.status ?? ''),
     maxLeadsPerDay: null, // filled in by fetchCampaignSchedules()
+    generalSettings: null, // filled in by fetchCampaignGeneralSettings()
     leadStats: {
       total: num(stats?.total, 0),
       completed: num(stats?.completed, 0),
@@ -572,6 +575,75 @@ export async function updateMaxLeadsPerDay(
   if (Array.isArray(obj?.errors) && obj.errors.length) {
     throw new Error(`Smartlead rejected the update: ${preview(obj.errors)}`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// General settings (plain text + open/click tracking) — Smartlead GraphQL
+// ---------------------------------------------------------------------------
+
+/**
+ * track_settings holds Smartlead's disable-flags as an array of strings (the
+ * exact enum spelling isn't documented publicly), so this matches tolerantly:
+ * any entry mentioning the feature alongside a "don't/disable" word counts.
+ */
+function trackFlagSet(trackSettings: unknown[], keyword: string): boolean {
+  return trackSettings.some((s) => {
+    const up = String(s).toUpperCase()
+    return (
+      up.includes(keyword) &&
+      (up.includes('DONT') || up.includes("DON'T") || up.includes('DISABLE') || up.includes('NO_'))
+    )
+  })
+}
+
+function normalizeGeneralSettings(raw: Record<string, unknown>): CampaignGeneralSettings {
+  const trackSettings = Array.isArray(raw?.track_settings) ? raw.track_settings : []
+  return {
+    sendAsPlainText: raw?.send_as_plain_text === true,
+    forcePlainText: raw?.force_plain_text === true,
+    dontTrackOpens: trackFlagSet(trackSettings, 'OPEN'),
+    dontTrackClicks: trackFlagSet(trackSettings, 'CLICK'),
+  }
+}
+
+/** id -> plain-text/tracking settings for the given campaign ids (one batched read). */
+export async function fetchCampaignGeneralSettings(
+  jwt: string,
+  ids: number[],
+): Promise<Map<number, CampaignGeneralSettings>> {
+  const out = new Map<number, CampaignGeneralSettings>()
+  if (ids.length === 0) return out
+
+  for (const batch of chunk(ids, 200)) {
+    const res = await fetch(`${CAMPAIGN_GENERAL_SETTINGS_URL}?ids=${batch.join(',')}`, {
+      method: 'GET',
+      headers: authHeaders(jwt),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(
+        `General settings request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+      )
+    }
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(`General settings response was not JSON. Response: ${preview(text)}`)
+    }
+    const obj = json as Record<string, unknown>
+    if (Array.isArray(obj?.errors) && obj.errors.length) {
+      throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
+    }
+    const rows = extractArray(json, ['email_campaigns'])
+    if (!rows) continue
+    for (const r of rows) {
+      const o = (r ?? {}) as Record<string, unknown>
+      const id = num(o.id, 0)
+      if (id) out.set(id, normalizeGeneralSettings(o))
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,6 +1083,19 @@ export async function loadCampaigns(
   } catch (e) {
     warnings.push(
       `Could not load campaign overview counters: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+
+  // 6) General settings (plain text / open & click tracking) — best-effort.
+  try {
+    const settingsMap = await fetchCampaignGeneralSettings(jwt, ids)
+    for (const c of campaigns) {
+      const s = settingsMap.get(c.campaignId)
+      if (s) c.generalSettings = s
+    }
+  } catch (e) {
+    warnings.push(
+      `Could not load campaign general settings: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
 

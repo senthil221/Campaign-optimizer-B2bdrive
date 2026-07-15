@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import type {
+  CampaignGeneralSettings,
   CampaignPerformance,
   CampaignSequencePayload,
   InboxReply,
@@ -130,6 +131,40 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   positive: 'desc',
   leadRate: 'desc',
   bounced: 'desc',
+}
+
+// Small badges next to the campaign name flagging non-default General
+// settings (plain text send/force, and disabled open/click tracking). Shows
+// nothing when a campaign has none of these on, or settings haven't loaded.
+function GeneralSettingsBadges({ settings }: { settings: CampaignGeneralSettings | null }) {
+  if (!settings) return null
+  const items: { key: string; label: string; title: string }[] = []
+  if (settings.sendAsPlainText) {
+    items.push({ key: 'txt', label: 'TXT', title: 'Send as plain text is enabled' })
+  }
+  if (settings.forcePlainText) {
+    items.push({ key: 'ftxt', label: 'FTXT', title: 'Force plain text is enabled' })
+  }
+  if (settings.dontTrackOpens) {
+    items.push({ key: 'no-open', label: 'OPEN✕', title: "Don't track email opens is enabled" })
+  }
+  if (settings.dontTrackClicks) {
+    items.push({ key: 'no-click', label: 'CLICK✕', title: "Don't track link clicks is enabled" })
+  }
+  if (items.length === 0) return null
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {items.map((it) => (
+        <span
+          key={it.key}
+          title={it.title}
+          className="grid h-4 place-items-center rounded border border-warn/30 bg-warn/[0.08] px-1 text-[8.5px] font-bold uppercase leading-none tracking-[0.02em] text-warn/90"
+        >
+          {it.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 // A metric shown as a percentage of sent, with the raw count as a faint hint.
@@ -657,6 +692,7 @@ export default function CampaignPerformanceTable({
                           {c.campaignName}
                         </span>
                       </button>
+                      <GeneralSettingsBadges settings={c.generalSettings} />
                       <button
                         onClick={() =>
                           setEditor({

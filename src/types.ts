@@ -158,6 +158,16 @@ export interface Campaign {
   leadStats: CampaignLeadStats
   /** Deletion-proof counters from analytics/overview. null = not loaded. */
   overview: CampaignOverview | null
+  /** Plain-text / tracking toggles from the campaign's General settings. null = not loaded. */
+  generalSettings: CampaignGeneralSettings | null
+}
+
+/** Plain-text and open/click tracking toggles from a campaign's General settings tab. */
+export interface CampaignGeneralSettings {
+  sendAsPlainText: boolean
+  forcePlainText: boolean
+  dontTrackOpens: boolean
+  dontTrackClicks: boolean
 }
 
 /** Normalized campaign-list row (ids + names + status + tags). */
