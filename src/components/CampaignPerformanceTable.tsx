@@ -133,37 +133,36 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   bounced: 'desc',
 }
 
-// Small badges next to the campaign name flagging non-default General
-// settings (plain text send/force, and disabled open/click tracking). Shows
-// nothing when a campaign has none of these on, or settings haven't loaded.
-function GeneralSettingsBadges({ settings }: { settings: CampaignGeneralSettings | null }) {
+// One compact glyph next to the campaign name for the General-settings check
+// (plain text send/force + disabled open/click tracking are the deliverability-
+// friendly defaults). Green check when all four are set; otherwise a single
+// amber mark whose tooltip lists exactly which ones aren't. Nothing renders
+// until settings have loaded.
+function GeneralSettingsIndicator({ settings }: { settings: CampaignGeneralSettings | null }) {
   if (!settings) return null
-  const items: { key: string; label: string; title: string }[] = []
-  if (settings.sendAsPlainText) {
-    items.push({ key: 'txt', label: 'TXT', title: 'Send as plain text is enabled' })
+  const missing: string[] = []
+  if (!settings.sendAsPlainText) missing.push('Plain text is off')
+  if (!settings.forcePlainText) missing.push('Force plain text is off')
+  if (!settings.dontTrackOpens) missing.push('Open tracking is on')
+  if (!settings.dontTrackClicks) missing.push('Click tracking is on')
+
+  if (missing.length === 0) {
+    return (
+      <span
+        title="Plain text + tracking settings all look good"
+        className="shrink-0 text-[12px] font-bold leading-none text-positive"
+      >
+        ✓
+      </span>
+    )
   }
-  if (settings.forcePlainText) {
-    items.push({ key: 'ftxt', label: 'FTXT', title: 'Force plain text is enabled' })
-  }
-  if (settings.dontTrackOpens) {
-    items.push({ key: 'no-open', label: 'OPEN✕', title: "Don't track email opens is enabled" })
-  }
-  if (settings.dontTrackClicks) {
-    items.push({ key: 'no-click', label: 'CLICK✕', title: "Don't track link clicks is enabled" })
-  }
-  if (items.length === 0) return null
   return (
-    <div className="flex shrink-0 items-center gap-1">
-      {items.map((it) => (
-        <span
-          key={it.key}
-          title={it.title}
-          className="grid h-4 place-items-center rounded border border-warn/30 bg-warn/[0.08] px-1 text-[8.5px] font-bold uppercase leading-none tracking-[0.02em] text-warn/90"
-        >
-          {it.label}
-        </span>
-      ))}
-    </div>
+    <span
+      title={missing.join(' · ')}
+      className="shrink-0 text-[12px] font-bold leading-none text-warn"
+    >
+      !
+    </span>
   )
 }
 
@@ -692,7 +691,7 @@ export default function CampaignPerformanceTable({
                           {c.campaignName}
                         </span>
                       </button>
-                      <GeneralSettingsBadges settings={c.generalSettings} />
+                      <GeneralSettingsIndicator settings={c.generalSettings} />
                       <button
                         onClick={() =>
                           setEditor({
