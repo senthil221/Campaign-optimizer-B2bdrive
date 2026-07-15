@@ -59,6 +59,24 @@ function findVariant(
 // ---- Small UI pieces --------------------------------------------------------
 
 /**
+ * Resolve spintax ({option one|option two|...}) to one random pick per group.
+ * Processes innermost groups first so nested spintax resolves correctly. The
+ * group must contain a "|" — otherwise a {{variable}} placeholder's inner
+ * braces would get mistaken for a (pipe-less) spintax group and stripped.
+ */
+function resolveSpintax(text: string): string {
+  const group = /\{([^{}]*\|[^{}]*)\}/
+  let result = text
+  while (group.test(result)) {
+    result = result.replace(group, (_match, options: string) => {
+      const choices = options.split('|')
+      return choices[Math.floor(Math.random() * choices.length)]
+    })
+  }
+  return result
+}
+
+/**
  * Render the email body exactly as authored (variables and spintax shown
  * literally) inside a fully sandboxed iframe — no scripts, no parent access.
  */
@@ -153,7 +171,12 @@ function VariantCard({
   onSave: () => void
   onReset: () => void
 }) {
-  const [showPreview, setShowPreview] = useState(false)
+  const [viewMode, setViewMode] = useState<'source' | 'preview' | 'spun'>('source')
+  const [spinTick, setSpinTick] = useState(0)
+  const spunHtml = useMemo(
+    () => resolveSpintax(variant.emailBody),
+    [variant.emailBody, spinTick],
+  )
   const enabled = !variant.isDeleted
   const dirty =
     serverVariant != null &&
@@ -210,21 +233,44 @@ function VariantCard({
         </label>
 
         <div>
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex items-center justify-between gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
               Email body (HTML)
             </span>
-            <button
-              type="button"
-              onClick={() => setShowPreview((p) => !p)}
-              className="text-[11px] font-medium text-faint transition hover:text-lime"
-            >
-              {showPreview ? 'Edit source' : 'Preview'}
-            </button>
+            <div className="flex items-center gap-2">
+              {viewMode === 'spun' && (
+                <button
+                  type="button"
+                  onClick={() => setSpinTick((t) => t + 1)}
+                  title="Pick another random spintax variation"
+                  className="text-[11px] font-medium text-faint transition hover:text-lime"
+                >
+                  🔀 Reshuffle
+                </button>
+              )}
+              <div className="flex items-center gap-0.5 rounded-md border border-line-soft p-0.5">
+                {(
+                  [
+                    ['source', 'Edit'],
+                    ['preview', 'Preview'],
+                    ['spun', 'Spin preview'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition ${
+                      viewMode === mode ? 'bg-lime/15 text-lime' : 'text-faint hover:text-ink'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          {showPreview ? (
-            <BodyPreview html={variant.emailBody} />
-          ) : (
+          {viewMode === 'source' && (
             <textarea
               value={variant.emailBody}
               onChange={(e) => onFieldChange('emailBody', e.target.value)}
@@ -233,9 +279,17 @@ function VariantCard({
               className="w-full resize-y rounded-lg border border-line bg-base px-3 py-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25"
             />
           )}
+          {viewMode === 'preview' && <BodyPreview html={variant.emailBody} />}
+          {viewMode === 'spun' && <BodyPreview html={spunHtml} />}
           <p className="mt-1 text-[10.5px] text-faint/70">
-            Variables like <code className="text-muted">{'{{first_name}}'}</code> and spintax like{' '}
-            <code className="text-muted">{'{Hi|Hello}'}</code> are kept exactly as typed.
+            {viewMode === 'spun' ? (
+              <>One random resolution of the spintax below — hit Reshuffle for another.</>
+            ) : (
+              <>
+                Variables like <code className="text-muted">{'{{first_name}}'}</code> and spintax
+                like <code className="text-muted">{'{Hi|Hello}'}</code> are kept exactly as typed.
+              </>
+            )}
           </p>
         </div>
 
