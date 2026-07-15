@@ -184,6 +184,9 @@ async function readSequences(
 //        { campaignId, sequenceId, variantId?, subject?, emailBody?, enabled?, delayInDays? }
 //        → read latest → mutate only the target by ID → POST full payload to
 //          add-sequence-list-to-campaign → refetch to verify → { ok, payload }
+//        { campaignId, addSequence: true }
+//        → read latest → append a new empty step → POST full payload →
+//          refetch (picks up the id Smartlead assigns) → { ok, payload }
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const jwt =
     process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
@@ -229,14 +232,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const body = (req.body ?? {}) as Any
     const campaignId = Number(body.campaignId)
-    const sequenceId = Number(body.sequenceId)
     if (!Number.isFinite(campaignId) || campaignId <= 0) {
       return res.status(400).json({ error: 'Body must include a numeric "campaignId".' })
     }
-    if (!Number.isFinite(sequenceId) || sequenceId <= 0) {
-      return res.status(400).json({ error: 'Body must include a numeric "sequenceId".' })
-    }
 
+    const isAddSequence = body.addSequence === true
+
+    const sequenceId = Number(body.sequenceId)
+    const hasSequenceId = Number.isFinite(sequenceId) && sequenceId > 0
     const variantId = Number(body.variantId)
     const hasVariant = Number.isFinite(variantId) && variantId > 0
     const hasSubject = typeof body.subject === 'string'
@@ -244,52 +247,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const hasEnabled = typeof body.enabled === 'boolean'
     const hasDelay = body.delayInDays != null && Number.isFinite(Number(body.delayInDays))
 
-    if (!hasSubject && !hasEmailBody && !hasEnabled && !hasDelay) {
-      return res.status(400).json({
-        error: 'Nothing to update. Provide subject, emailBody, enabled, and/or delayInDays.',
-      })
-    }
-    if ((hasSubject || hasEmailBody || hasEnabled) && !hasVariant) {
-      return res.status(400).json({
-        error: 'Editing subject/emailBody/enabled requires a numeric "variantId".',
-      })
+    if (!isAddSequence) {
+      if (!hasSequenceId) {
+        return res.status(400).json({ error: 'Body must include a numeric "sequenceId".' })
+      }
+      if (!hasSubject && !hasEmailBody && !hasEnabled && !hasDelay) {
+        return res.status(400).json({
+          error: 'Nothing to update. Provide subject, emailBody, enabled, and/or delayInDays.',
+        })
+      }
+      if ((hasSubject || hasEmailBody || hasEnabled) && !hasVariant) {
+        return res.status(400).json({
+          error: 'Editing subject/emailBody/enabled requires a numeric "variantId".',
+        })
+      }
     }
 
     try {
       // 1) Fetch the LATEST sequence payload (normalized to camelCase).
       const { sequences, debug } = await readSequences(jwt, apiKey, campaignId)
-      if (!sequences || sequences.length === 0) {
+      if (!sequences || (sequences.length === 0 && !isAddSequence)) {
         return res.status(502).json({
           error: `Could not load the current sequences before saving. Tried: ${debug.join(' | ')}`,
         })
       }
 
-      // 2) Locate the target sequence by ID (never by index).
-      const seq = sequences.find((s) => s.id === sequenceId)
-      if (!seq) {
-        return res.status(404).json({
-          error: `Sequence ${sequenceId} was not found in campaign ${campaignId}.`,
+      if (isAddSequence) {
+        // Append a brand-new step (id 0 — Smartlead assigns the real id on
+        // save; the post-save refetch below picks it up).
+        const nextSeqNumber =
+          (sequences ?? []).reduce((max, s) => Math.max(max, s.seqNumber), 0) + 1
+        sequences!.push({
+          id: 0,
+          seqNumber: nextSeqNumber,
+          seqType: 'EMAIL',
+          seqDelayDetails: { delayInDays: nextSeqNumber > 1 ? 1 : 0 },
+          seqScheduleType: 'AUTOMATIC',
+          variantDistributionType: 'MANUAL_EQUAL',
+          seqVariants: [
+            { id: 0, variantLabel: null, subject: '', emailBody: '', isDeleted: false },
+          ],
         })
-      }
-
-      // 3) Apply ONLY the requested change to ONLY the matched target.
-      if (hasDelay) {
-        seq.seqDelayDetails = {
-          ...seq.seqDelayDetails,
-          delayInDays: Math.max(0, Math.round(Number(body.delayInDays))),
-        }
-      }
-      if (hasVariant) {
-        const variant = seq.seqVariants.find((v) => v.id === variantId)
-        if (!variant) {
+      } else {
+        // 2) Locate the target sequence by ID (never by index).
+        const seq = sequences!.find((s) => s.id === sequenceId)
+        if (!seq) {
           return res.status(404).json({
-            error: `Variant ${variantId} was not found in sequence ${sequenceId}.`,
+            error: `Sequence ${sequenceId} was not found in campaign ${campaignId}.`,
           })
         }
-        if (hasSubject) variant.subject = String(body.subject)
-        if (hasEmailBody) variant.emailBody = String(body.emailBody)
-        // enabled:true → isDeleted:false, enabled:false → isDeleted:true
-        if (hasEnabled) variant.isDeleted = !(body.enabled as boolean)
+
+        // 3) Apply ONLY the requested change to ONLY the matched target.
+        if (hasDelay) {
+          seq.seqDelayDetails = {
+            ...seq.seqDelayDetails,
+            delayInDays: Math.max(0, Math.round(Number(body.delayInDays))),
+          }
+        }
+        if (hasVariant) {
+          const variant = seq.seqVariants.find((v) => v.id === variantId)
+          if (!variant) {
+            return res.status(404).json({
+              error: `Variant ${variantId} was not found in sequence ${sequenceId}.`,
+            })
+          }
+          if (hasSubject) variant.subject = String(body.subject)
+          if (hasEmailBody) variant.emailBody = String(body.emailBody)
+          // enabled:true → isDeleted:false, enabled:false → isDeleted:true
+          if (hasEnabled) variant.isDeleted = !(body.enabled as boolean)
+        }
       }
 
       // 4) Submit the FULL payload back in Smartlead's exact save shape.

@@ -72,7 +72,7 @@ function BodyPreview({ html }: { html: string }) {
       title="Email preview"
       sandbox=""
       srcDoc={srcDoc}
-      className="h-40 w-full rounded-lg border border-line-soft bg-white"
+      className="h-80 w-full rounded-lg border border-line-soft bg-white"
     />
   )
 }
@@ -229,7 +229,7 @@ function VariantCard({
               value={variant.emailBody}
               onChange={(e) => onFieldChange('emailBody', e.target.value)}
               spellCheck={false}
-              rows={7}
+              rows={16}
               className="w-full resize-y rounded-lg border border-line bg-base px-3 py-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-lime/50 focus:ring-1 focus:ring-lime/25"
             />
           )}
@@ -330,6 +330,8 @@ export default function SequenceEditor({
   const [error, setError] = useState<string | null>(null)
   const [variantState, setVariantState] = useState<Record<number, RowState>>({})
   const [delayState, setDelayState] = useState<Record<number, RowState>>({})
+  const [addingSequence, setAddingSequence] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   const reqIdRef = useRef(0)
   const serverRef = useRef<CampaignSequencePayload | null>(null)
@@ -533,6 +535,28 @@ export default function SequenceEditor({
     [campaignId, saveEdit, reconcile],
   )
 
+  // Append a brand-new (empty) sequence step. The server assigns the real id;
+  // only the new step is merged in so other in-progress edits survive.
+  const handleAddSequence = useCallback(async () => {
+    if (campaignId == null) return
+    setAddingSequence(true)
+    setAddError(null)
+    try {
+      const fresh = await saveEdit({ campaignId, addSequence: true })
+      setServer(fresh)
+      setWorking((prev) => {
+        if (!prev) return fresh
+        const knownIds = new Set(prev.sequences.map((s) => s.id))
+        const added = fresh.sequences.filter((s) => !knownIds.has(s.id))
+        return { ...prev, sequences: [...prev.sequences, ...added] }
+      })
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAddingSequence(false)
+    }
+  }, [campaignId, saveEdit])
+
   const handleDelayChange = (seqId: number, value: number) => {
     setWorking((prev) =>
       prev ? mapSequence(prev, seqId, (s) => ({ ...s, delayInDays: value })) : prev,
@@ -579,7 +603,7 @@ export default function SequenceEditor({
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-3 sm:p-6">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={requestClose} />
 
-      <div className="relative flex h-full max-h-[920px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
+      <div className="relative flex h-full max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
           <div className="min-w-0">
@@ -703,6 +727,28 @@ export default function SequenceEditor({
                 </section>
               )
             })}
+
+          {!loading && !error && (
+            <div>
+              <button
+                type="button"
+                onClick={handleAddSequence}
+                disabled={addingSequence}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line px-4 py-3 text-[13px] font-semibold text-faint transition hover:border-lime/40 hover:text-lime disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {addingSequence ? (
+                  <>
+                    <span className="inline-block animate-spin">↻</span> Adding sequence…
+                  </>
+                ) : (
+                  <>+ Add sequence</>
+                )}
+              </button>
+              {addError && (
+                <p className="mt-1.5 text-[11px] font-medium text-critical">{addError}</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

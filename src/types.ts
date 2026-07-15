@@ -338,13 +338,16 @@ export interface CampaignSequencePayload {
 /** Delta sent to the save endpoint — never the whole payload, never raw IDs guessed. */
 export interface SequenceEditRequest {
   campaignId: number
-  sequenceId: number
+  /** Omitted when addSequence is true — there's no existing step to target yet. */
+  sequenceId?: number
   variantId?: number
   subject?: string
   emailBody?: string
   /** enabled:true → isDeleted:false, enabled:false → isDeleted:true. */
   enabled?: boolean
   delayInDays?: number
+  /** When true, append a brand-new sequence step instead of editing sequenceId. */
+  addSequence?: boolean
 }
 
 /** campaign_id (string) -> tag_name */
