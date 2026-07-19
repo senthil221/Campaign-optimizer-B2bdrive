@@ -256,8 +256,8 @@ export default function CampaignInboxDrawer({
         onClick={onClose}
       />
 
-      {/* Panel */}
-      <aside className="relative flex h-full w-full max-w-[640px] flex-col border-l border-line bg-panel shadow-panel animate-rise [animation-duration:0.35s]">
+      {/* Panel — wide enough to read a run of replies without constant scrolling. */}
+      <aside className="relative flex h-full w-full max-w-[1100px] flex-col border-l border-line bg-panel shadow-panel animate-rise [animation-duration:0.35s] lg:w-[85vw]">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
