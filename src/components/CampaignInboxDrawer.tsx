@@ -73,8 +73,9 @@ function SafeHtmlFrame({
   )
 }
 
-// A prospect's reply. Collapsed shows a one-line snippet; expanded shows the
-// message we sent and the full reply thread side by side.
+// A prospect's reply, always shown in full — no expand step and no copy of the
+// message we sent, so a whole variant's replies can be read straight down the
+// list. "Full screen" is kept for replies whose original HTML matters.
 function ReplyCard({
   r,
   onFullscreen,
@@ -82,17 +83,9 @@ function ReplyCard({
   r: InboxReply
   onFullscreen: () => void
 }) {
-  const [open, setOpen] = useState(false)
   return (
-    <div
-      className={`rounded-xl border transition ${
-        open ? 'border-lime/30 bg-white/[0.03]' : 'border-line bg-white/[0.015] hover:border-line'
-      }`}
-    >
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-3 px-3.5 py-3 text-left"
-      >
+    <div className="rounded-xl border border-line bg-white/[0.015]">
+      <div className="flex items-start gap-3 px-3.5 py-3">
         <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-panel-2 text-[11px] font-semibold text-muted">
           {initials(r.leadName, r.leadEmail)}
         </span>
@@ -111,68 +104,32 @@ function ReplyCard({
             )}
           </div>
           <div className="truncate text-[11px] text-faint">{r.leadEmail}</div>
-          <div className="mt-1 line-clamp-2 whitespace-pre-line text-[12.5px] leading-snug text-muted">
-            {r.replySnippet || '(no text)'}
-          </div>
         </div>
-        <div className="shrink-0 text-right">
+        <div className="flex shrink-0 items-center gap-2">
           <div className="tnum whitespace-nowrap text-[11px] text-faint">
             {fmtTime(r.replyTime)}
           </div>
-          <span
-            className={`mt-1 inline-block text-faint transition-transform ${open ? 'rotate-90 text-lime' : ''}`}
+          <button
+            onClick={onFullscreen}
+            title="Open this reply as its original HTML"
+            className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-medium text-faint transition hover:border-lime/40 hover:text-lime"
           >
-            ›
-          </span>
+            <span className="leading-none">⛶</span>
+          </button>
         </div>
-      </button>
+      </div>
 
-      {open && (
-        <div className="grid gap-3 border-t border-line-soft px-3.5 py-3 md:grid-cols-2">
-          <div>
-            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
-              <span className="h-1.5 w-1.5 rounded-full bg-faint/60" />
-              Sent · {fmtTime(r.sentTime)}
-            </div>
-            <div className="mb-1 truncate text-[11px] text-faint" title={r.fromEmail}>
-              from {r.fromEmail || '—'}
-            </div>
-            <div className="max-h-56 overflow-auto whitespace-pre-line rounded-lg border border-line-soft bg-base/60 px-3 py-2 text-[12px] leading-relaxed text-muted">
-              {r.subject && (
-                <div className="mb-1 font-semibold text-ink/90">{r.subject}</div>
-              )}
-              {r.sentBody || '(no body)'}
-            </div>
-          </div>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
-                <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
-                Reply · {fmtTime(r.replyTime)}
-              </div>
-              <button
-                onClick={onFullscreen}
-                title="Open the full reply in a larger view"
-                className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-medium text-faint transition hover:border-lime/40 hover:text-lime"
-              >
-                <span className="leading-none">⛶</span> Full screen
-              </button>
-            </div>
-            <div className="mb-1 truncate text-[11px] text-faint" title={r.leadEmail}>
-              from {r.leadEmail || '—'}
-            </div>
-            <div className="max-h-56 overflow-auto whitespace-pre-line rounded-lg border border-lime/15 bg-lime/[0.03] px-3 py-2 text-[12px] leading-relaxed text-ink/90">
-              {r.replySnippet || r.replyText || '(no text)'}
-            </div>
-          </div>
+      <div className="border-t border-line-soft px-3.5 py-3">
+        <div className="whitespace-pre-line text-[12.5px] leading-relaxed text-ink/90">
+          {r.replySnippet || r.replyText || '(no text)'}
         </div>
-      )}
+      </div>
     </div>
   )
 }
 
-// Full-screen reader for one reply: renders the real email HTML (sent + reply)
-// in sandboxed frames so nothing is compressed or lost.
+// Full-screen reader for one reply: renders the prospect's real email HTML in a
+// sandboxed frame so nothing is compressed or lost.
 function ReplyFullScreen({ r, onClose }: { r: InboxReply; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -206,22 +163,13 @@ function ReplyFullScreen({ r, onClose }: { r: InboxReply; onClose: () => void })
           </button>
         </div>
 
-        {/* Two panes: sent + reply, each a real rendered email */}
-        <div className="grid min-h-0 flex-1 grid-rows-2 gap-4 overflow-auto p-4 lg:grid-cols-2 lg:grid-rows-1">
-          <div className="flex min-h-0 flex-col">
-            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
-              <span className="h-1.5 w-1.5 rounded-full bg-faint/60" />
-              Sent · {fmtTime(r.sentTime)} · from {r.fromEmail || '—'}
-            </div>
-            <SafeHtmlFrame html={r.sentHtml} text={r.sentBody} className="min-h-0 flex-1" />
+        {/* The reply itself, as a real rendered email */}
+        <div className="flex min-h-0 flex-1 flex-col p-4">
+          <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
+            <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
+            Reply · {fmtTime(r.replyTime)} · from {r.leadEmail || '—'}
           </div>
-          <div className="flex min-h-0 flex-col">
-            <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-lime/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-lime/70" />
-              Reply · {fmtTime(r.replyTime)} · from {r.leadEmail || '—'}
-            </div>
-            <SafeHtmlFrame html={r.replyHtml} text={r.replyText} className="min-h-0 flex-1" />
-          </div>
+          <SafeHtmlFrame html={r.replyHtml} text={r.replyText} className="min-h-0 flex-1" />
         </div>
       </div>
     </div>
