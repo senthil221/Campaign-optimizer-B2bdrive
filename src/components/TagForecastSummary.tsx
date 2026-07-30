@@ -5,7 +5,7 @@ import ColumnsMenu from './ColumnsMenu'
 const fmt = (n: number) => n.toLocaleString()
 const daysFmt = (d: number | null) => (d === null ? '—' : String(d))
 
-const TH = 'px-3 py-2.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
+const TH = 'px-3 py-2.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted/80 whitespace-nowrap align-middle'
 const TD = 'px-3 py-2 whitespace-nowrap align-middle tnum tabular-nums text-[13px]'
 
 // Toggleable columns (the Tag name column is always shown).

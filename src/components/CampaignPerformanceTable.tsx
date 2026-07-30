@@ -74,7 +74,7 @@ const pct = (n: number) => `${n.toFixed(2)}%`
 const cleanPct = (n: number) => `${Number(n.toFixed(2))}%`
 const ratio = (a: number, b: number) => (b > 0 ? (a / b) * 100 : 0)
 
-const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint/60 whitespace-nowrap align-middle'
+const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted/80 whitespace-nowrap align-middle'
 const TD = 'px-4 py-1.5 whitespace-nowrap align-middle tnum tabular-nums'
 
 const UNMAPPED = '__unmapped__'

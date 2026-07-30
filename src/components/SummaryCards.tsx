@@ -49,7 +49,7 @@ function Stat({
       className={`group relative flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 transition-colors hover:bg-white/[0.02]
         after:absolute after:bottom-0 after:left-6 after:h-[2px] after:w-8 after:rounded-full after:opacity-0 after:transition-opacity after:duration-300 group-hover:after:opacity-100 ${accentBar}`}
     >
-      <span className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.18em] text-faint/70">
+      <span className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.18em] text-muted/80">
         {label}
       </span>
       {loading ? (
