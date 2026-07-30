@@ -616,10 +616,8 @@ export default function DomainHealthPage({
                           title={inboxRiskTitle(row)}
                         >
                           <span>!</span>
-                          {fmt(row.inboxRisk.total)} alert
-                          {row.inboxRisk.total === 1 ? '' : 's'} ·{' '}
-                          {fmt(row.inboxRisk.affectedInboxes)} inbox
-                          {row.inboxRisk.affectedInboxes === 1 ? '' : 'es'}
+                          {fmt(row.inboxRisk.total)} /{' '}
+                          {fmt(row.inboxRisk.affectedInboxes)}
                         </span>
                       ) : (
                         <span
