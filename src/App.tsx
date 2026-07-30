@@ -252,13 +252,13 @@ export default function App() {
 
   useEffect(() => {
     if (activePage === 'domains' && !domainLoaded && !domainLoading) {
-      void refreshDomainHealth()
+      void applyDomainRange()
     }
   }, [
     activePage,
+    applyDomainRange,
     domainLoaded,
     domainLoading,
-    refreshDomainHealth,
   ])
 
   // ---- Derived data (calculations kept out of the components) ----
