@@ -4,6 +4,7 @@ import {
   fetchCampaignInbox,
   fetchCampaignSequences,
   fetchEmailAccounts,
+  fetchTagSendPerformance,
   fetchSequenceEditor,
   loadCampaigns,
   saveSequenceEdit,
@@ -21,11 +22,14 @@ import { buildTagVolumes } from './utils/tagCapacity'
 import {
   loadEmailsPerLead,
   loadTagMap,
+  loadTheme,
   loadVisibleColumns,
   saveEmailsPerLead,
+  saveTheme,
   saveVisibleColumns,
   PERF_COLUMNS_KEY,
   TAG_COLUMNS_KEY,
+  type Theme,
 } from './utils/storage'
 import Header from './components/Header'
 import SummaryCards from './components/SummaryCards'
@@ -48,7 +52,28 @@ const DEFAULT_TAG_COLUMNS: Record<string, boolean> = {
   demand: false,
 }
 
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+function getReportingDate(now = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).format(now),
+  )
+  return IST_DATE_FORMAT.format(
+    hour < 3 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now,
+  )
+}
+
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(loadTheme)
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   // Tags come from Smartlead's own campaign tags. Any legacy manual overrides
@@ -68,6 +93,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [tagSends, setTagSends] = useState<Record<string, number>>({})
+  const [reportingDate, setReportingDate] = useState(getReportingDate)
 
   // Latest campaigns, for reverting an optimistic edit without stale closures.
   const campaignsRef = useRef<Campaign[]>([])
@@ -79,29 +106,56 @@ export default function App() {
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
   useEffect(() => saveVisibleColumns(PERF_COLUMNS_KEY, visibleCols), [visibleCols])
   useEffect(() => saveVisibleColumns(TAG_COLUMNS_KEY, tagCols), [tagCols])
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light')
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.documentElement.style.colorScheme = theme
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'light' ? '#f5f7fb' : '#0a0a0b')
+    saveTheme(theme)
+  }, [theme])
 
   // Credentials are injected server-side by the /api proxy → empty strings here.
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
     setWarnings([])
-    const [accRes, campRes] = await Promise.allSettled([
+    const date = getReportingDate()
+    setReportingDate(date)
+    const [accRes, campRes, sendsRes] = await Promise.allSettled([
       fetchEmailAccounts(''),
       loadCampaigns('', ''),
+      fetchTagSendPerformance('', date),
     ])
 
     const errs: string[] = []
+    const nextWarnings: string[] = []
     if (accRes.status === 'fulfilled') setAccounts(accRes.value)
     else errs.push(`Accounts: ${accRes.reason?.message ?? accRes.reason}`)
 
     if (campRes.status === 'fulfilled') {
       setCampaigns(campRes.value.campaigns)
-      setWarnings(campRes.value.warnings)
+      nextWarnings.push(...campRes.value.warnings)
     } else {
       errs.push(`Campaigns: ${campRes.reason?.message ?? campRes.reason}`)
     }
 
     setError(errs.length ? errs.join('  •  ') : null)
+    if (sendsRes.status === 'fulfilled') {
+      const next: Record<string, number> = {}
+      for (const row of sendsRes.value) {
+        if (row.tagId) next[`id:${row.tagId}`] = row.sent
+        if (row.tagName) next[`name:${row.tagName.toLowerCase()}`] = row.sent
+      }
+      setTagSends(next)
+    } else {
+      nextWarnings.push(
+        `Live sent counts unavailable: ${sendsRes.reason?.message ?? sendsRes.reason}`,
+      )
+    }
+
+    setWarnings(nextWarnings)
     setLastUpdated(new Date())
     setLoading(false)
   }, [])
@@ -231,6 +285,8 @@ export default function App() {
         emailsPerLead={emailsPerLead}
         onEmailsPerLeadChange={setEmailsPerLead}
         onRefresh={refresh}
+        theme={theme}
+        onThemeChange={setTheme}
       />
 
       <main className="mx-auto max-w-[1440px] space-y-5 px-6 py-7 lg:px-10">
@@ -278,6 +334,8 @@ export default function App() {
           loading={loading}
           visibleCols={tagCols}
           onColumnsChange={setTagCols}
+          sentByTag={tagSends}
+          reportingDate={reportingDate}
         />
 
         <CampaignPerformanceTable

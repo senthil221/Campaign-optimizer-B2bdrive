@@ -28,6 +28,12 @@ export interface RawEmailAccount {
   email_account_tag_mappings?: RawTagMapping[] | null
 }
 
+export interface TagSendPerformance {
+  tagId: number | null
+  tagName: string
+  sent: number
+}
+
 export interface RawCampaignLeadStats {
   total?: number | null
   paused?: number | null

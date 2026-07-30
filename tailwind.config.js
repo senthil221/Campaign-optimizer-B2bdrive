@@ -10,15 +10,16 @@ export default {
         mono: ['Satoshi', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
-        base: '#0a0a0b',
-        panel: '#131316',
-        'panel-2': '#17181c',
-        elevated: '#1c1d22',
-        line: 'rgba(255,255,255,0.07)',
-        'line-soft': 'rgba(255,255,255,0.045)',
-        ink: '#F4F4F5',
-        muted: '#9b9ba4',
-        faint: '#5e5e68',
+        white: 'rgb(var(--color-overlay) / <alpha-value>)',
+        base: 'rgb(var(--color-base) / <alpha-value>)',
+        panel: 'rgb(var(--color-panel) / <alpha-value>)',
+        'panel-2': 'rgb(var(--color-panel-2) / <alpha-value>)',
+        elevated: 'rgb(var(--color-elevated) / <alpha-value>)',
+        line: 'rgb(var(--color-line) / <alpha-value>)',
+        'line-soft': 'rgb(var(--color-line-soft) / <alpha-value>)',
+        ink: 'rgb(var(--color-ink) / <alpha-value>)',
+        muted: 'rgb(var(--color-muted) / <alpha-value>)',
+        faint: 'rgb(var(--color-faint) / <alpha-value>)',
         lime: {
           DEFAULT: '#C6F24E',
           dim: '#acd93f',
@@ -29,8 +30,7 @@ export default {
         critical: '#FB6E72',
       },
       boxShadow: {
-        panel:
-          '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 30px 60px -32px rgba(0,0,0,0.85)',
+        panel: 'var(--shadow-panel)',
         glow: '0 6px 24px -8px rgba(198,242,78,0.4)',
       },
       keyframes: {

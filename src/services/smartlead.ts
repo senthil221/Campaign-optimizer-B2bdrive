@@ -16,6 +16,7 @@ import type {
   RawSequenceStep,
   SequenceEditRequest,
   SequenceStat,
+  TagSendPerformance,
 } from '../types'
 import { num } from '../utils/campaignCalculations'
 
@@ -32,6 +33,7 @@ const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 const CAMPAIGN_SEQUENCE_EDITOR_URL = '/api/campaign-sequence-editor'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
+const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -301,6 +303,55 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
     fetchEmailAccountsByUsage(jwt, false),
   ])
   return dedupeAccounts([...active, ...idle])
+}
+
+/**
+ * Smartlead returns one tag row per email provider. Sum duplicate tags so the
+ * overview exposes a single live count for each sending pool.
+ */
+export async function fetchTagSendPerformance(
+  jwt: string,
+  date: string,
+): Promise<TagSendPerformance[]> {
+  const res = await fetch(
+    `${PROVIDER_PERFORMANCE_URL}?date=${encodeURIComponent(date)}`,
+    { method: 'GET', headers: authHeaders(jwt) },
+  )
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Live tag sends request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Live tag sends response was not valid JSON: ${preview(text)}`)
+  }
+
+  const root = json as {
+    data?: {
+      email_providers_performance_overview?: {
+        tag_wise?: Array<Record<string, unknown>>
+      }
+    }
+  }
+  const rows = root?.data?.email_providers_performance_overview?.tag_wise ?? []
+  const aggregated = new Map<string, TagSendPerformance>()
+
+  for (const row of rows) {
+    const tagId = num(row.tag_id, 0) || null
+    const tagName = String(row.tag_name ?? '').trim()
+    if (!tagId && !tagName) continue
+    const key = tagId ? `id:${tagId}` : `name:${tagName.toLowerCase()}`
+    const current = aggregated.get(key)
+    if (current) current.sent += num(row.sent, 0)
+    else aggregated.set(key, { tagId, tagName, sent: num(row.sent, 0) })
+  }
+
+  return Array.from(aggregated.values())
 }
 
 // ---------------------------------------------------------------------------

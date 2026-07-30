@@ -8,11 +8,33 @@ export const PERF_COLUMNS_KEY = 'sl_visible_columns'
 export const TAG_COLUMNS_KEY = 'sl_tag_columns'
 
 const STATUS_FILTER_KEY = 'sl_status_filter'
+const THEME_KEY = 'sl_theme'
 
 export const DEFAULT_EMAILS_PER_LEAD = 2
 
 /** Campaign statuses shown by default — only running campaigns. */
 export const DEFAULT_STATUS_FILTER = ['ACTIVE']
+export type Theme = 'dark' | 'light'
+
+export function loadTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved === 'dark' || saved === 'light') return saved
+    return window.matchMedia('(prefers-color-scheme: light)').matches
+      ? 'light'
+      : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+export function saveTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    /* ignore */
+  }
+}
 
 export function loadTagMap(): CampaignTagMap {
   try {

@@ -17,6 +17,7 @@ export const TAG_COLUMNS = [
   { id: 'daysLeft', label: 'Days left' },
   { id: 'status', label: 'Status' },
   { id: 'accts', label: 'Accts' },
+  { id: 'sentToday', label: 'Sent today' },
   { id: 'monthlyProspects', label: 'Monthly prospects' },
   { id: 'unused', label: 'Idle inboxes' },
   { id: 'avgRep', label: 'Avg rep' },
@@ -51,11 +52,15 @@ export default function TagForecastSummary({
   loading,
   visibleCols,
   onColumnsChange,
+  sentByTag,
+  reportingDate,
 }: {
   tags: TagForecast[]
   loading: boolean
   visibleCols: Record<string, boolean>
   onColumnsChange: (next: Record<string, boolean>) => void
+  sentByTag: Record<string, number>
+  reportingDate: string
 }) {
   const show = (id: TagColumnId) => visibleCols[id] !== false
 
@@ -76,7 +81,9 @@ export default function TagForecastSummary({
           <h2 className="font-display text-[16px] font-semibold leading-none tracking-[-0.02em] text-ink">
             Tag Overview
           </h2>
-          <span className="hidden text-[11px] text-faint/60 sm:block">sending health &amp; forecast</span>
+          <span className="hidden text-[11px] text-faint/60 sm:block">
+            sending health &amp; forecast · live sends for {reportingDate}
+          </span>
         </div>
         <ColumnsMenu
           columns={TAG_COLUMNS}
@@ -114,6 +121,14 @@ export default function TagForecastSummary({
                 {show('accts') && (
                   <th className={`${TH} border-l border-line text-right`}>Accts</th>
                 )}
+                {show('sentToday') && (
+                  <th
+                    className={`${TH} text-right`}
+                    title={`Emails sent during Smartlead reporting day ${reportingDate}; refreshed with the dashboard`}
+                  >
+                    Sent today
+                  </th>
+                )}
                 {show('monthlyProspects') && (
                   <th
                     className={`${TH} text-right`}
@@ -134,6 +149,9 @@ export default function TagForecastSummary({
             <tbody>
               {rows.map((t) => {
                 const idle = t.mappedCampaigns === 0
+                const liveSent =
+                  sentByTag[`id:${t.tagId}`] ??
+                  sentByTag[`name:${t.tagName.toLowerCase()}`]
                 return (
                   <tr
                     key={t.tagName}
@@ -206,6 +224,15 @@ export default function TagForecastSummary({
                     {show('accts') && (
                       <td className={`${TD} border-l border-line text-right text-muted`}>
                         {t.accountCount}
+                      </td>
+                    )}
+                    {show('sentToday') && (
+                      <td
+                        className={`${TD} text-right font-semibold ${
+                          liveSent === undefined ? 'text-faint' : 'text-positive'
+                        }`}
+                      >
+                        {liveSent === undefined ? '—' : fmt(liveSent)}
                       </td>
                     )}
                     {show('monthlyProspects') && (

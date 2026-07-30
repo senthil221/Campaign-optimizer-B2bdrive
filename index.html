@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0a0a0b" />
+    <script>
+      try {
+        const saved = localStorage.getItem('sl_theme')
+        const theme = saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        document.documentElement.classList.add(theme)
+        document.documentElement.style.colorScheme = theme
+      } catch {}
+    </script>
     <title>Campaign Optimizer · Smartlead</title>
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
     <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin />

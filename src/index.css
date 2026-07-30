@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-base: 10 10 11;
+  --color-panel: 19 19 22;
+  --color-panel-2: 23 24 28;
+  --color-elevated: 28 29 34;
+  --color-line: 27 27 28;
+  --color-line-soft: 21 21 22;
+  --color-ink: 244 244 245;
+  --color-muted: 155 155 164;
+  --color-faint: 94 94 104;
+  --color-overlay: 255 255 255;
+  --shadow-panel: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 30px 60px -32px rgba(0,0,0,0.85);
+}
+
+:root.light {
+  --color-base: 245 247 251;
+  --color-panel: 255 255 255;
+  --color-panel-2: 248 250 252;
+  --color-elevated: 241 245 249;
+  --color-line: 225 229 235;
+  --color-line-soft: 239 241 245;
+  --color-ink: 15 23 42;
+  --color-muted: 71 85 105;
+  --color-faint: 125 137 153;
+  --color-overlay: 15 23 42;
+  --shadow-panel: 0 1px 0 0 rgba(255,255,255,0.9) inset, 0 18px 45px -30px rgba(15,23,42,0.28);
+}
+
 html,
 body,
 #root {
@@ -10,8 +38,8 @@ body,
 
 body {
   margin: 0;
-  color: #f4f4f5;
-  background-color: #0a0a0b;
+  color: rgb(var(--color-ink));
+  background-color: rgb(var(--color-base));
   font-family: Satoshi, ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: 'ss01' 1;
   -webkit-font-smoothing: antialiased;
@@ -20,6 +48,12 @@ body {
   background-image:
     radial-gradient(900px 600px at 10% -8%, rgba(198,242,78,0.055) 0%, transparent 65%),
     radial-gradient(600px 500px at 90% 100%, rgba(91,217,138,0.025) 0%, transparent 65%);
+}
+
+:root.light body {
+  background-image:
+    radial-gradient(900px 600px at 10% -8%, rgba(166, 209, 48, 0.13) 0%, transparent 65%),
+    radial-gradient(600px 500px at 90% 100%, rgba(59, 130, 246, 0.06) 0%, transparent 65%);
 }
 
 /* Very fine grain so the dark panels read as material, kept subtle. */
@@ -47,7 +81,7 @@ body::before {
 
 ::selection {
   background: rgba(198, 242, 78, 0.22);
-  color: #fff;
+  color: rgb(var(--color-ink));
 }
 
 * {
@@ -75,6 +109,6 @@ button {
   font-family: inherit;
 }
 select option {
-  background: #17181c;
-  color: #f4f4f5;
+  background: rgb(var(--color-panel-2));
+  color: rgb(var(--color-ink));
 }
