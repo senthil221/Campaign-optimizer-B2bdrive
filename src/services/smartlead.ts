@@ -6,6 +6,7 @@ import type {
   CampaignSequencePayload,
   EditableSequence,
   EditableVariant,
+  DomainHealthMetric,
   EmailAccount,
   InboxReply,
   LoadCampaignsResult,
@@ -34,6 +35,7 @@ const CAMPAIGN_SEQUENCE_EDITOR_URL = '/api/campaign-sequence-editor'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
+const DOMAIN_HEALTH_URL = '/api/domain-health'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -111,6 +113,7 @@ export function normalizeEmailAccount(
   }
 
   const warmup = raw?.email_warmup_details ?? {}
+  const dns = raw?.dns_validation_status ?? {}
 
   // Treat an account as disconnected only when Smartlead explicitly reports a
   // failed SMTP/IMAP handshake. Absent fields are assumed connected.
@@ -131,6 +134,11 @@ export function normalizeEmailAccount(
     warmupReputation: num(warmup?.warmup_reputation, 0),
     connected,
     isInUse,
+    dnsSpfVerified: dns?.isSPFVerified === true,
+    dnsDkimVerified: dns?.isDKIMVerified === true,
+    dnsDmarcVerified: dns?.isDMARCVerified === true,
+    dnsLastVerifiedAt:
+      typeof dns?.lastVerifiedTime === 'string' ? dns.lastVerifiedTime : null,
     tagIds,
     tagNames,
   }
@@ -372,6 +380,52 @@ export async function fetchTagSendPerformance(
     rows: previousRows,
     reportingDate: previousRows.length > 0 ? previousDate : date,
   }
+}
+
+export async function fetchDomainHealthMetrics(
+  jwt: string,
+  startDate: string,
+  endDate: string,
+): Promise<DomainHealthMetric[]> {
+  const params = new URLSearchParams({ start: startDate, end: endDate })
+  const res = await fetch(`${DOMAIN_HEALTH_URL}?${params}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Domain health request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Domain health response was not valid JSON: ${preview(text)}`)
+  }
+
+  const rows = extractArray(json, ['domain_health_metrics']) ?? []
+  return rows
+    .map((value): DomainHealthMetric | null => {
+      const row = (value ?? {}) as Record<string, unknown>
+      const domain = String(row.domain ?? '').trim().toLowerCase()
+      if (!domain) return null
+      const percent = (input: unknown) => {
+        const parsed = Number.parseFloat(String(input ?? '0').replace('%', ''))
+        return Number.isFinite(parsed) ? parsed : 0
+      }
+      return {
+        domain,
+        sent: num(row.sent, 0),
+        replied: num(row.replied, 0),
+        bounced: num(row.bounced, 0),
+        replyRate: percent(row.reply_rate),
+        bounceRate: percent(row.bounce_rate),
+      }
+    })
+    .filter((row): row is DomainHealthMetric => row !== null)
 }
 
 // ---------------------------------------------------------------------------

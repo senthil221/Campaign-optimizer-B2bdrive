@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Campaign, CampaignTagMap, EmailAccount } from './types'
+import type {
+  Campaign,
+  CampaignTagMap,
+  DomainHealthMetric,
+  EmailAccount,
+} from './types'
 import {
   fetchCampaignInbox,
   fetchCampaignSequences,
   fetchEmailAccounts,
+  fetchDomainHealthMetrics,
   fetchTagSendPerformance,
   fetchSequenceEditor,
   loadCampaigns,
@@ -31,12 +37,14 @@ import {
   TAG_COLUMNS_KEY,
   type Theme,
 } from './utils/storage'
-import Header from './components/Header'
+import Header, { type AppPage } from './components/Header'
 import SummaryCards from './components/SummaryCards'
 import TagForecastSummary, { TAG_COLUMNS } from './components/TagForecastSummary'
 import CampaignPerformanceTable, {
   PERF_COLUMNS,
 } from './components/CampaignPerformanceTable'
+import DomainHealthPage from './components/DomainHealthPage'
+import { buildDomainHealthRows } from './utils/domainHealth'
 
 // Default: every column visible. Stored prefs are merged over this so a newly
 // added column shows up by default for existing users.
@@ -72,8 +80,13 @@ function getReportingDate(now = new Date()): string {
   )
 }
 
+function getPreviousIstDate(now = new Date()): string {
+  return IST_DATE_FORMAT.format(new Date(now.getTime() - 24 * 60 * 60 * 1000))
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>(loadTheme)
+  const [activePage, setActivePage] = useState<AppPage>('campaigns')
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   // Tags come from Smartlead's own campaign tags. Any legacy manual overrides
@@ -95,6 +108,13 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [tagSends, setTagSends] = useState<Record<string, number>>({})
   const [reportingDate, setReportingDate] = useState(getReportingDate)
+  const [domainStartDate, setDomainStartDate] = useState(getPreviousIstDate)
+  const [domainEndDate, setDomainEndDate] = useState(getPreviousIstDate)
+  const [domainMetrics, setDomainMetrics] = useState<DomainHealthMetric[]>([])
+  const [domainLoading, setDomainLoading] = useState(false)
+  const [domainLoaded, setDomainLoaded] = useState(false)
+  const [domainError, setDomainError] = useState<string | null>(null)
+  const [domainLastUpdated, setDomainLastUpdated] = useState<Date | null>(null)
 
   // Latest campaigns, for reverting an optimistic edit without stale closures.
   const campaignsRef = useRef<Campaign[]>([])
@@ -165,6 +185,50 @@ export default function App() {
     void refresh()
   }, [refresh])
 
+  const refreshDomainHealth = useCallback(async () => {
+    if (!domainStartDate || !domainEndDate || domainStartDate > domainEndDate) {
+      return
+    }
+    setDomainLoading(true)
+    setDomainError(null)
+    const [accountsResult, metricsResult] = await Promise.allSettled([
+      fetchEmailAccounts(''),
+      fetchDomainHealthMetrics('', domainStartDate, domainEndDate),
+    ])
+
+    const failures: string[] = []
+    if (accountsResult.status === 'fulfilled') {
+      setAccounts(accountsResult.value)
+    } else {
+      failures.push(
+        `Mailbox DNS data: ${accountsResult.reason?.message ?? accountsResult.reason}`,
+      )
+    }
+    if (metricsResult.status === 'fulfilled') {
+      setDomainMetrics(metricsResult.value)
+    } else {
+      failures.push(
+        `Domain analytics: ${metricsResult.reason?.message ?? metricsResult.reason}`,
+      )
+    }
+
+    setDomainError(failures.length > 0 ? failures.join('  •  ') : null)
+    setDomainLoaded(true)
+    setDomainLastUpdated(new Date())
+    setDomainLoading(false)
+  }, [domainStartDate, domainEndDate])
+
+  useEffect(() => {
+    if (activePage === 'domains' && !domainLoaded && !domainLoading) {
+      void refreshDomainHealth()
+    }
+  }, [
+    activePage,
+    domainLoaded,
+    domainLoading,
+    refreshDomainHealth,
+  ])
+
   // ---- Derived data (calculations kept out of the components) ----
   const realTags = useMemo(
     () => buildTagVolumes(accounts).filter((t) => t.tagName !== 'Untagged'),
@@ -188,6 +252,11 @@ export default function App() {
   const tagForecasts = useMemo(
     () => buildTagForecasts(realTags, campaigns, tagMap, emailsPerLead),
     [realTags, campaigns, tagMap, emailsPerLead],
+  )
+
+  const domainRows = useMemo(
+    () => buildDomainHealthRows(domainMetrics, accounts),
+    [domainMetrics, accounts],
   )
 
   const kpis = useMemo(() => {
@@ -281,17 +350,25 @@ export default function App() {
   return (
     <div className="min-h-full">
       <Header
-        loading={loading}
-        lastUpdated={lastUpdated}
+        loading={activePage === 'campaigns' ? loading : domainLoading}
+        lastUpdated={
+          activePage === 'campaigns' ? lastUpdated : domainLastUpdated
+        }
         emailsPerLead={emailsPerLead}
         onEmailsPerLeadChange={setEmailsPerLead}
-        onRefresh={refresh}
+        onRefresh={
+          activePage === 'campaigns' ? refresh : refreshDomainHealth
+        }
         theme={theme}
         onThemeChange={setTheme}
+        activePage={activePage}
+        onPageChange={setActivePage}
       />
 
       <main className="mx-auto max-w-[1440px] space-y-5 px-6 py-7 lg:px-10">
-        {error && (
+        {activePage === 'campaigns' ? (
+          <>
+          {error && (
           <div className="flex gap-3 rounded-xl border border-critical/30 bg-critical/10 px-4 py-3 text-sm text-critical">
             <span className="mt-0.5 select-none">●</span>
             <span>
@@ -352,6 +429,19 @@ export default function App() {
           visibleCols={visibleCols}
           onColumnsChange={setVisibleCols}
         />
+          </>
+        ) : (
+          <DomainHealthPage
+            rows={domainRows}
+            loading={domainLoading}
+            error={domainError}
+            startDate={domainStartDate}
+            endDate={domainEndDate}
+            onStartDateChange={setDomainStartDate}
+            onEndDateChange={setDomainEndDate}
+            onApply={refreshDomainHealth}
+          />
+        )}
       </main>
     </div>
   )

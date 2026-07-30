@@ -16,6 +16,13 @@ export interface RawWarmupDetails {
   warmup_reputation?: number | string | null
 }
 
+export interface RawDnsValidationStatus {
+  isSPFVerified?: boolean | null
+  isDKIMVerified?: boolean | null
+  isDMARCVerified?: boolean | null
+  lastVerifiedTime?: string | null
+}
+
 export interface RawEmailAccount {
   id: number
   from_email?: string | null
@@ -26,6 +33,7 @@ export interface RawEmailAccount {
   is_in_use?: boolean | null
   email_warmup_details?: RawWarmupDetails | null
   email_account_tag_mappings?: RawTagMapping[] | null
+  dns_validation_status?: RawDnsValidationStatus | null
 }
 
 export interface TagSendPerformance {
@@ -96,8 +104,31 @@ export interface EmailAccount {
   connected: boolean
   /** True when this inbox is assigned to at least one campaign. */
   isInUse: boolean
+  dnsSpfVerified: boolean
+  dnsDkimVerified: boolean
+  dnsDmarcVerified: boolean
+  dnsLastVerifiedAt: string | null
   tagIds: number[]
   tagNames: string[]
+}
+
+export interface DomainHealthMetric {
+  domain: string
+  sent: number
+  replied: number
+  bounced: number
+  replyRate: number
+  bounceRate: number
+}
+
+export interface DomainHealthRow extends DomainHealthMetric {
+  accountCount: number
+  avgWarmupReputation: number | null
+  spfVerified: boolean
+  dkimVerified: boolean
+  dmarcVerified: boolean
+  dnsValidated: boolean
+  missingDns: string[]
 }
 
 export interface TagVolume {
