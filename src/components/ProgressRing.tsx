@@ -14,7 +14,13 @@ export function ProgressRing({
   const circ = 2 * Math.PI * r
   const offset = circ - (p / 100) * circ
   const color =
-    p >= 100 ? '#C6F24E' : p >= 66 ? '#5BD98A' : p >= 33 ? '#F4BD50' : '#acd93f'
+    p >= 100
+      ? 'rgb(var(--color-lime))'
+      : p >= 66
+        ? 'rgb(var(--color-positive))'
+        : p >= 33
+          ? 'rgb(var(--color-warn))'
+          : 'rgb(var(--color-lime-dim))'
   const center = size / 2
   const glowId = `ring-glow-${Math.round(p)}`
 
@@ -42,7 +48,7 @@ export function ProgressRing({
           cy={center}
           r={r}
           fill="none"
-          stroke="rgba(255,255,255,0.07)"
+          stroke="rgb(var(--color-line))"
           strokeWidth={stroke}
         />
         {/* Fill arc */}
@@ -66,7 +72,7 @@ export function ProgressRing({
         y={center}
         textAnchor="middle"
         dominantBaseline="central"
-        fill="#F4F4F5"
+        fill="rgb(var(--color-ink))"
         fontWeight="700"
         style={{
           fontSize: size * 0.23,

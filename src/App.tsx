@@ -112,7 +112,7 @@ export default function App() {
     document.documentElement.style.colorScheme = theme
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', theme === 'light' ? '#f5f7fb' : '#0a0a0b')
+      ?.setAttribute('content', theme === 'light' ? '#e5e6e0' : '#0a0a0b')
     saveTheme(theme)
   }, [theme])
 

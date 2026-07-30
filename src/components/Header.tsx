@@ -32,11 +32,11 @@ export default function Header({
       <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-6 py-3 lg:px-10">
         {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="grid h-8 w-8 place-items-center rounded-[9px] bg-lime/10 ring-1 ring-lime/20">
+          <div className="grid h-8 w-8 place-items-center rounded-[9px] bg-lime/10 text-lime ring-1 ring-lime/20">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <rect x="3" y="13" width="4" height="8" rx="1.2" fill="#C6F24E" opacity="0.45" />
-              <rect x="10" y="8" width="4" height="13" rx="1.2" fill="#C6F24E" opacity="0.75" />
-              <rect x="17" y="3" width="4" height="18" rx="1.2" fill="#C6F24E" />
+              <rect x="3" y="13" width="4" height="8" rx="1.2" fill="currentColor" opacity="0.45" />
+              <rect x="10" y="8" width="4" height="13" rx="1.2" fill="currentColor" opacity="0.75" />
+              <rect x="17" y="3" width="4" height="18" rx="1.2" fill="currentColor" />
             </svg>
           </div>
           <h1 className="font-display text-[17px] font-semibold leading-none tracking-[-0.02em] text-ink">
@@ -107,7 +107,7 @@ export default function Header({
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-lime px-4 py-2 text-[13px] font-bold text-[#0a0a0b] shadow-glow transition hover:bg-lime-dim active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-lime-fill px-4 py-2 text-[13px] font-bold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className={`text-[14px] leading-none ${loading ? 'animate-spin' : ''}`}>
               ↻

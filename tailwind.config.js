@@ -21,17 +21,19 @@ export default {
         muted: 'rgb(var(--color-muted) / <alpha-value>)',
         faint: 'rgb(var(--color-faint) / <alpha-value>)',
         lime: {
-          DEFAULT: '#C6F24E',
-          dim: '#acd93f',
-          deep: '#39431a',
+          DEFAULT: 'rgb(var(--color-lime) / <alpha-value>)',
+          dim: 'rgb(var(--color-lime-dim) / <alpha-value>)',
+          deep: 'rgb(var(--color-lime-deep) / <alpha-value>)',
         },
-        positive: '#5BD98A',
-        warn: '#F4BD50',
-        critical: '#FB6E72',
+        'lime-fill': 'rgb(var(--color-lime-fill) / <alpha-value>)',
+        'lime-fill-hover': 'rgb(var(--color-lime-fill-hover) / <alpha-value>)',
+        positive: 'rgb(var(--color-positive) / <alpha-value>)',
+        warn: 'rgb(var(--color-warn) / <alpha-value>)',
+        critical: 'rgb(var(--color-critical) / <alpha-value>)',
       },
       boxShadow: {
         panel: 'var(--shadow-panel)',
-        glow: '0 6px 24px -8px rgba(198,242,78,0.4)',
+        glow: 'var(--shadow-glow)',
       },
       keyframes: {
         rise: {

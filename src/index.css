@@ -13,21 +13,43 @@
   --color-muted: 155 155 164;
   --color-faint: 94 94 104;
   --color-overlay: 255 255 255;
+  --color-lime: 198 242 78;
+  --color-lime-dim: 172 217 63;
+  --color-lime-deep: 57 67 26;
+  --color-lime-fill: 198 242 78;
+  --color-lime-fill-hover: 172 217 63;
+  --color-positive: 91 217 138;
+  --color-warn: 244 189 80;
+  --color-critical: 251 110 114;
   --shadow-panel: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 30px 60px -32px rgba(0,0,0,0.85);
+  --shadow-glow: 0 6px 24px -8px rgba(198,242,78,0.4);
+  --grain-opacity: 0.022;
+  --scrollbar-thumb: 255 255 255;
 }
 
 :root.light {
-  --color-base: 245 247 251;
-  --color-panel: 255 255 255;
-  --color-panel-2: 248 250 252;
-  --color-elevated: 241 245 249;
-  --color-line: 225 229 235;
-  --color-line-soft: 239 241 245;
-  --color-ink: 15 23 42;
-  --color-muted: 71 85 105;
-  --color-faint: 125 137 153;
-  --color-overlay: 15 23 42;
-  --shadow-panel: 0 1px 0 0 rgba(255,255,255,0.9) inset, 0 18px 45px -30px rgba(15,23,42,0.28);
+  --color-base: 229 230 224;
+  --color-panel: 242 242 237;
+  --color-panel-2: 234 235 229;
+  --color-elevated: 225 227 220;
+  --color-line: 205 209 200;
+  --color-line-soft: 222 224 218;
+  --color-ink: 37 42 36;
+  --color-muted: 86 94 84;
+  --color-faint: 119 127 116;
+  --color-overlay: 37 42 36;
+  --color-lime: 90 112 18;
+  --color-lime-dim: 76 94 15;
+  --color-lime-deep: 219 225 202;
+  --color-lime-fill: 170 211 54;
+  --color-lime-fill-hover: 154 193 45;
+  --color-positive: 39 125 78;
+  --color-warn: 169 103 18;
+  --color-critical: 190 65 71;
+  --shadow-panel: 0 1px 0 0 rgba(255,255,255,0.58) inset, 0 16px 36px -28px rgba(37,42,36,0.42);
+  --shadow-glow: 0 6px 20px -10px rgba(100,125,20,0.45);
+  --grain-opacity: 0.014;
+  --scrollbar-thumb: 37 42 36;
 }
 
 html,
@@ -52,8 +74,8 @@ body {
 
 :root.light body {
   background-image:
-    radial-gradient(900px 600px at 10% -8%, rgba(166, 209, 48, 0.13) 0%, transparent 65%),
-    radial-gradient(600px 500px at 90% 100%, rgba(59, 130, 246, 0.06) 0%, transparent 65%);
+    radial-gradient(900px 600px at 10% -8%, rgba(116, 139, 49, 0.08) 0%, transparent 65%),
+    radial-gradient(700px 520px at 90% 100%, rgba(82, 95, 75, 0.045) 0%, transparent 68%);
 }
 
 /* Very fine grain so the dark panels read as material, kept subtle. */
@@ -63,7 +85,7 @@ body::before {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.022;
+  opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 120px 120px;
 }
@@ -86,20 +108,20 @@ body::before {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.13) transparent;
+  scrollbar-color: rgb(var(--scrollbar-thumb) / 0.13) transparent;
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.11);
+  background: rgb(var(--scrollbar-thumb) / 0.11);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--scrollbar-thumb) / 0.2);
   background-clip: content-box;
 }
 
