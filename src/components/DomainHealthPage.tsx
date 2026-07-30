@@ -4,8 +4,68 @@ import type { DomainHealthRow } from '../types'
 const fmt = (value: number) => value.toLocaleString()
 const pct = (value: number) => `${value.toFixed(2)}%`
 const TH =
-  'whitespace-nowrap px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted/80'
-const TD = 'whitespace-nowrap px-4 py-2.5 text-[13px] tnum'
+  'whitespace-nowrap px-3 py-2.5 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80'
+const TD = 'whitespace-nowrap px-3 py-2 text-[12px] tnum'
+
+type SortKey =
+  | 'domain'
+  | 'client'
+  | 'accountCount'
+  | 'messagePerDay'
+  | 'sent'
+  | 'bounced'
+  | 'bounceRate'
+  | 'replied'
+  | 'replyRate'
+  | 'avgWarmupReputation'
+  | 'dnsStatus'
+
+type SortDirection = 'asc' | 'desc'
+
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  align = 'right',
+  className = '',
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  activeKey: SortKey
+  direction: SortDirection
+  align?: 'left' | 'right'
+  className?: string
+  onSort: (key: SortKey) => void
+}) {
+  const active = sortKey === activeKey
+  return (
+    <th
+      className={`${TH} ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+      aria-sort={
+        active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 transition hover:text-ink ${
+          align === 'right' ? 'justify-end' : 'justify-start'
+        }`}
+        title={`Sort by ${label}`}
+      >
+        {label}
+        <span
+          aria-hidden="true"
+          className={`text-[10px] ${active ? 'text-lime' : 'text-faint/70'}`}
+        >
+          {active ? (direction === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
+  )
+}
 
 function SummaryStat({
   label,
@@ -24,29 +84,16 @@ function SummaryStat({
     critical: 'text-critical',
   }[tone]
   return (
-    <div className="min-w-[155px] flex-1 px-5 py-4">
-      <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted/80">
+    <div className="min-w-[145px] flex-1 px-5 py-3">
+      <div className="text-[9px] font-medium uppercase tracking-[0.14em] text-muted/80">
         {label}
       </div>
-      <div className={`tnum mt-1.5 font-display text-[25px] font-bold ${color}`}>
+      <div
+        className={`tnum mt-1 text-[20px] font-semibold tracking-[-0.01em] ${color}`}
+      >
         {value}
       </div>
     </div>
-  )
-}
-
-function DnsFlag({ label, valid }: { label: string; valid: boolean }) {
-  return (
-    <span
-      className={`inline-flex min-w-[54px] items-center justify-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold ring-1 ring-inset ${
-        valid
-          ? 'bg-positive/10 text-positive ring-positive/25'
-          : 'bg-critical/10 text-critical ring-critical/25'
-      }`}
-    >
-      <span>{valid ? '✓' : '×'}</span>
-      {label}
-    </span>
   )
 }
 
@@ -70,11 +117,62 @@ export default function DomainHealthPage({
   onApply: () => void
 }) {
   const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('bounceRate')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
-  const filteredRows = useMemo(() => {
+
+  const visibleRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return query ? rows.filter((row) => row.domain.includes(query)) : rows
-  }, [rows, search])
+    const filtered = query
+      ? rows.filter(
+          (row) =>
+            row.domain.includes(query) ||
+            row.tagNames.some((tagName) =>
+              tagName.toLowerCase().includes(query),
+            ),
+        )
+      : rows
+
+    const valueFor = (row: DomainHealthRow): string | number => {
+      switch (sortKey) {
+        case 'domain':
+          return row.domain
+        case 'client':
+          return row.tagNames.join(', ')
+        case 'accountCount':
+          return row.accountCount
+        case 'messagePerDay':
+          return row.messagePerDay
+        case 'sent':
+          return row.sent
+        case 'bounced':
+          return row.bounced
+        case 'bounceRate':
+          return row.bounceRate
+        case 'replied':
+          return row.replied
+        case 'replyRate':
+          return row.replyRate
+        case 'avgWarmupReputation':
+          return row.avgWarmupReputation ?? -1
+        case 'dnsStatus':
+          return row.missingDns.length
+      }
+    }
+
+    return [...filtered].sort((a, b) => {
+      const aValue = valueFor(a)
+      const bValue = valueFor(b)
+      const comparison =
+        typeof aValue === 'string' && typeof bValue === 'string'
+          ? aValue.localeCompare(bValue)
+          : Number(aValue) - Number(bValue)
+      return (
+        comparison * (sortDirection === 'asc' ? 1 : -1) ||
+        a.domain.localeCompare(b.domain)
+      )
+    })
+  }, [rows, search, sortDirection, sortKey])
 
   const totals = useMemo(() => {
     const sent = rows.reduce((sum, row) => sum + row.sent, 0)
@@ -88,6 +186,15 @@ export default function DomainHealthPage({
     }
   }, [rows])
 
+  const sortBy = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection(key === 'domain' || key === 'client' ? 'asc' : 'desc')
+  }
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (validRange && !loading) onApply()
@@ -100,18 +207,19 @@ export default function DomainHealthPage({
           <div>
             <div className="flex items-center gap-3">
               <span className="h-[22px] w-[3px] rounded-full bg-lime" />
-              <h2 className="font-display text-[18px] font-semibold tracking-[-0.02em] text-ink">
+              <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-ink">
                 Domain Health
               </h2>
             </div>
             <p className="mt-1.5 pl-6 text-[11px] text-muted">
-              Sending performance, warmup reputation, and DNS authentication by domain
+              Sending performance, capacity, warmup reputation, and DNS by
+              domain
             </p>
           </div>
 
           <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
             <label className="block">
-              <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted">
+              <span className="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
                 Start date
               </span>
               <input
@@ -122,7 +230,7 @@ export default function DomainHealthPage({
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.12em] text-muted">
+              <span className="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
                 End date
               </span>
               <input
@@ -136,7 +244,7 @@ export default function DomainHealthPage({
             <button
               type="submit"
               disabled={!validRange || loading}
-              className="h-9 rounded-lg bg-lime-fill px-4 text-[12px] font-bold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-9 rounded-lg bg-lime-fill px-4 text-[12px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Loading…' : 'Apply'}
             </button>
@@ -150,37 +258,59 @@ export default function DomainHealthPage({
         )}
         {error && (
           <div className="border-b border-critical/20 bg-critical/10 px-5 py-3 text-xs text-critical">
-            <span className="font-semibold">Could not load domain health.</span>{' '}
+            <span className="font-semibold">
+              Could not load domain health.
+            </span>{' '}
             {error}
           </div>
         )}
 
         <div className="flex divide-x divide-line overflow-x-auto">
           <SummaryStat label="Domains" value={fmt(rows.length)} />
-          <SummaryStat label="Emails sent" value={fmt(totals.sent)} tone="lime" />
+          <SummaryStat
+            label="Emails sent"
+            value={fmt(totals.sent)}
+            tone="lime"
+          />
           <SummaryStat
             label="Bounce rate"
             value={pct(totals.bounceRate)}
-            tone={totals.bounceRate > 3 ? 'critical' : totals.bounceRate > 1 ? 'warn' : 'positive'}
+            tone={
+              totals.bounceRate > 3
+                ? 'critical'
+                : totals.bounceRate > 1
+                  ? 'warn'
+                  : 'positive'
+            }
           />
-          <SummaryStat label="Reply rate" value={pct(totals.replyRate)} tone="positive" />
+          <SummaryStat
+            label="Reply rate"
+            value={pct(totals.replyRate)}
+            tone="positive"
+          />
           <SummaryStat
             label="DNS validated"
             value={`${totals.dnsValidated}/${rows.length}`}
-            tone={totals.dnsValidated === rows.length && rows.length > 0 ? 'positive' : 'warn'}
+            tone={
+              totals.dnsValidated === rows.length && rows.length > 0
+                ? 'positive'
+                : 'warn'
+            }
           />
         </div>
       </section>
 
       <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
           <div className="flex items-center gap-3">
             <span className="h-[18px] w-[3px] rounded-full bg-lime" />
-            <h3 className="font-display text-[16px] font-semibold text-ink">
+            <h3 className="text-[14px] font-semibold text-ink">
               Domain Overview
             </h3>
             <span className="text-[11px] text-muted">
-              {startDate === endDate ? startDate : `${startDate} → ${endDate}`}
+              {startDate === endDate
+                ? startDate
+                : `${startDate} → ${endDate}`}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -188,11 +318,11 @@ export default function DomainHealthPage({
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search domain…"
-              className="h-8 w-48 rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60"
+              placeholder="Search domain or client…"
+              className="h-8 w-52 rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60"
             />
             <span className="tnum text-[11px] text-muted">
-              {filteredRows.length}/{rows.length}
+              {visibleRows.length}/{rows.length}
             </span>
           </div>
         </div>
@@ -200,46 +330,149 @@ export default function DomainHealthPage({
         {loading && rows.length === 0 ? (
           <div className="space-y-2 p-4">
             {Array.from({ length: 8 }).map((_, index) => (
-              <div key={index} className="h-9 animate-pulse rounded-lg bg-white/[0.04]" />
+              <div
+                key={index}
+                className="h-9 animate-pulse rounded-lg bg-white/[0.04]"
+              />
             ))}
           </div>
-        ) : filteredRows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <div className="px-5 py-16 text-center text-sm text-muted">
-            {search ? 'No domains match your search.' : 'No domain data found for this date range.'}
+            {search
+              ? 'No domains or clients match your search.'
+              : 'No domain data found for this date range.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-line text-left">
-                  <th className={`${TH} pl-5`}>Domain</th>
-                  <th className={`${TH} border-l border-line text-right`}>Accounts</th>
-                  <th className={`${TH} text-right`}>Sent</th>
-                  <th className={`${TH} text-right`}>Bounced</th>
-                  <th className={`${TH} text-right`}>Bounce rate</th>
-                  <th className={`${TH} text-right`}>Replied</th>
-                  <th className={`${TH} text-right`}>Reply rate</th>
-                  <th className={`${TH} border-l border-line text-right`}>Avg warmup</th>
-                  <th className={`${TH} text-left`}>DNS status</th>
-                  <th className={`${TH} text-center`}>Checks</th>
+                  <SortHeader
+                    label="Domain"
+                    sortKey="domain"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    align="left"
+                    className="pl-5"
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Client"
+                    sortKey="client"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    align="left"
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Accounts"
+                    sortKey="accountCount"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    className="border-l border-line"
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Available / day"
+                    sortKey="messagePerDay"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Sent"
+                    sortKey="sent"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Bounced"
+                    sortKey="bounced"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Bounce rate"
+                    sortKey="bounceRate"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Replied"
+                    sortKey="replied"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Reply rate"
+                    sortKey="replyRate"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="Avg warmup"
+                    sortKey="avgWarmupReputation"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    className="border-l border-line"
+                    onSort={sortBy}
+                  />
+                  <SortHeader
+                    label="DNS status"
+                    sortKey="dnsStatus"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    align="left"
+                    onSort={sortBy}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
+                {visibleRows.map((row) => (
                   <tr
                     key={row.domain}
                     className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.03]"
                   >
-                    <td className={`${TD} pl-5 font-semibold text-ink`}>{row.domain}</td>
-                    <td className={`${TD} border-l border-line text-right text-muted`}>
+                    <td className={`${TD} pl-5 font-medium text-ink`}>
+                      {row.domain}
+                    </td>
+                    <td
+                      className={`${TD} max-w-[190px] truncate text-left text-muted`}
+                      title={
+                        row.tagNames.length > 0
+                          ? row.tagNames.join(', ')
+                          : 'No client tag'
+                      }
+                    >
+                      {row.tagNames.length > 0
+                        ? row.tagNames.join(', ')
+                        : '—'}
+                    </td>
+                    <td
+                      className={`${TD} border-l border-line text-right text-muted`}
+                    >
                       {fmt(row.accountCount)}
                     </td>
-                    <td className={`${TD} text-right font-semibold text-ink`}>{fmt(row.sent)}</td>
-                    <td className={`${TD} text-right ${row.bounced > 0 ? 'text-critical' : 'text-faint'}`}>
+                    <td className={`${TD} text-right text-muted`}>
+                      {fmt(row.messagePerDay)}
+                    </td>
+                    <td className={`${TD} text-right font-medium text-ink`}>
+                      {fmt(row.sent)}
+                    </td>
+                    <td
+                      className={`${TD} text-right ${
+                        row.bounced > 0 ? 'text-critical' : 'text-faint'
+                      }`}
+                    >
                       {fmt(row.bounced)}
                     </td>
                     <td
-                      className={`${TD} text-right font-semibold ${
+                      className={`${TD} text-right font-medium ${
                         row.bounceRate > 3
                           ? 'text-critical'
                           : row.bounceRate > 1
@@ -249,12 +482,18 @@ export default function DomainHealthPage({
                     >
                       {pct(row.bounceRate)}
                     </td>
-                    <td className={`${TD} text-right text-ink`}>{fmt(row.replied)}</td>
-                    <td className={`${TD} text-right font-semibold ${row.replyRate > 0 ? 'text-positive' : 'text-faint'}`}>
+                    <td className={`${TD} text-right text-ink`}>
+                      {fmt(row.replied)}
+                    </td>
+                    <td
+                      className={`${TD} text-right font-medium ${
+                        row.replyRate > 0 ? 'text-positive' : 'text-faint'
+                      }`}
+                    >
                       {pct(row.replyRate)}
                     </td>
                     <td
-                      className={`${TD} border-l border-line text-right font-semibold ${
+                      className={`${TD} border-l border-line text-right font-medium ${
                         row.avgWarmupReputation === null
                           ? 'text-faint'
                           : row.avgWarmupReputation >= 90
@@ -268,24 +507,17 @@ export default function DomainHealthPage({
                     </td>
                     <td className={`${TD} text-left`}>
                       {row.dnsValidated ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-positive/10 px-2.5 py-1 text-[11px] font-semibold text-positive ring-1 ring-inset ring-positive/25">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-positive/10 px-2.5 py-1 text-[10px] font-medium text-positive ring-1 ring-inset ring-positive/25">
                           <span>✓</span> DNS validated
                         </span>
                       ) : (
                         <span
-                          className="inline-flex items-center gap-1.5 rounded-full bg-critical/10 px-2.5 py-1 text-[11px] font-semibold text-critical ring-1 ring-inset ring-critical/25"
+                          className="inline-flex items-center gap-1.5 rounded-full bg-critical/10 px-2.5 py-1 text-[10px] font-medium text-critical ring-1 ring-inset ring-critical/25"
                           title={`Missing ${row.missingDns.join(', ')}`}
                         >
                           Missing {row.missingDns.join(', ')}
                         </span>
                       )}
-                    </td>
-                    <td className={`${TD} text-center`}>
-                      <div className="flex justify-center gap-1.5">
-                        <DnsFlag label="SPF" valid={row.spfVerified} />
-                        <DnsFlag label="DKIM" valid={row.dkimVerified} />
-                        <DnsFlag label="DMARC" valid={row.dmarcVerified} />
-                      </div>
                     </td>
                   </tr>
                 ))}

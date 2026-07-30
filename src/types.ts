@@ -122,7 +122,9 @@ export interface DomainHealthMetric {
 }
 
 export interface DomainHealthRow extends DomainHealthMetric {
+  tagNames: string[]
   accountCount: number
+  messagePerDay: number
   avgWarmupReputation: number | null
   spfVerified: boolean
   dkimVerified: boolean

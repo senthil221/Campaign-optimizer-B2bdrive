@@ -31,6 +31,8 @@ export function buildDomainHealthRows(
     string,
     {
       count: number
+      messagePerDay: number
+      tagNames: Set<string>
       reputationSum: number
       reputationCount: number
       spfVerified: boolean
@@ -43,6 +45,8 @@ export function buildDomainHealthRows(
     if (!domain) continue
     const current = accountMap.get(domain) ?? {
       count: 0,
+      messagePerDay: 0,
+      tagNames: new Set<string>(),
       reputationSum: 0,
       reputationCount: 0,
       spfVerified: true,
@@ -50,6 +54,11 @@ export function buildDomainHealthRows(
       dmarcVerified: true,
     }
     current.count += 1
+    if (account.connected) current.messagePerDay += account.messagePerDay
+    for (const tagName of account.tagNames) {
+      const normalizedTag = tagName.trim()
+      if (normalizedTag) current.tagNames.add(normalizedTag)
+    }
     if (account.warmupReputation > 0) {
       current.reputationSum += account.warmupReputation
       current.reputationCount += 1
@@ -80,7 +89,11 @@ export function buildDomainHealthRows(
         bounced: metric.bounced,
         replyRate: metric.sent > 0 ? (metric.replied / metric.sent) * 100 : 0,
         bounceRate: metric.sent > 0 ? (metric.bounced / metric.sent) * 100 : 0,
+        tagNames: Array.from(account?.tagNames ?? []).sort((a, b) =>
+          a.localeCompare(b),
+        ),
         accountCount: account?.count ?? 0,
+        messagePerDay: account?.messagePerDay ?? 0,
         avgWarmupReputation:
           account && account.reputationCount > 0
             ? Math.round(
