@@ -80,8 +80,14 @@ function getReportingDate(now = new Date()): string {
   )
 }
 
+function getIstDateOffset(daysAgo: number, now = new Date()): string {
+  return IST_DATE_FORMAT.format(
+    new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000),
+  )
+}
+
 function getPreviousIstDate(now = new Date()): string {
-  return IST_DATE_FORMAT.format(new Date(now.getTime() - 24 * 60 * 60 * 1000))
+  return getIstDateOffset(1, now)
 }
 
 export default function App() {
@@ -185,15 +191,15 @@ export default function App() {
     void refresh()
   }, [refresh])
 
-  const refreshDomainHealth = useCallback(async () => {
-    if (!domainStartDate || !domainEndDate || domainStartDate > domainEndDate) {
+  const loadDomainHealth = useCallback(async (startDate: string, endDate: string) => {
+    if (!startDate || !endDate || startDate > endDate) {
       return
     }
     setDomainLoading(true)
     setDomainError(null)
     const [accountsResult, metricsResult] = await Promise.allSettled([
       fetchEmailAccounts(''),
-      fetchDomainHealthMetrics('', domainStartDate, domainEndDate),
+      fetchDomainHealthMetrics('', startDate, endDate),
     ])
 
     const failures: string[] = []
@@ -216,7 +222,24 @@ export default function App() {
     setDomainLoaded(true)
     setDomainLastUpdated(new Date())
     setDomainLoading(false)
-  }, [domainStartDate, domainEndDate])
+  }, [])
+
+  const refreshDomainHealth = useCallback(
+    () => loadDomainHealth(domainStartDate, domainEndDate),
+    [domainEndDate, domainStartDate, loadDomainHealth],
+  )
+
+  const applyDomainPreset = useCallback(
+    (days: 1 | 3) => {
+      const now = new Date()
+      const endDate = getIstDateOffset(0, now)
+      const startDate = getIstDateOffset(days - 1, now)
+      setDomainStartDate(startDate)
+      setDomainEndDate(endDate)
+      void loadDomainHealth(startDate, endDate)
+    },
+    [loadDomainHealth],
+  )
 
   useEffect(() => {
     if (activePage === 'domains' && !domainLoaded && !domainLoading) {
@@ -440,6 +463,7 @@ export default function App() {
             onStartDateChange={setDomainStartDate}
             onEndDateChange={setDomainEndDate}
             onApply={refreshDomainHealth}
+            onPreset={applyDomainPreset}
           />
         )}
       </main>

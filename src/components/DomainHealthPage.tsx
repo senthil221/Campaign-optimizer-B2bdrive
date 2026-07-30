@@ -3,6 +3,12 @@ import type { DomainHealthRow } from '../types'
 
 const fmt = (value: number) => value.toLocaleString()
 const pct = (value: number) => `${value.toFixed(2)}%`
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 const TH =
   'whitespace-nowrap px-3 py-2.5 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80'
 const TD = 'whitespace-nowrap px-3 py-2 text-[12px] tnum'
@@ -106,6 +112,7 @@ export default function DomainHealthPage({
   onStartDateChange,
   onEndDateChange,
   onApply,
+  onPreset,
 }: {
   rows: DomainHealthRow[]
   loading: boolean
@@ -115,11 +122,23 @@ export default function DomainHealthPage({
   onStartDateChange: (value: string) => void
   onEndDateChange: (value: string) => void
   onApply: () => void
+  onPreset: (days: 1 | 3) => void
 }) {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('bounceRate')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
+  const now = new Date()
+  const today = IST_DATE_FORMAT.format(now)
+  const threeDaysAgo = IST_DATE_FORMAT.format(
+    new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+  )
+  const activePreset =
+    startDate === today && endDate === today
+      ? 'today'
+      : startDate === threeDaysAgo && endDate === today
+        ? '3d'
+        : null
 
   const visibleRows = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -218,6 +237,37 @@ export default function DomainHealthPage({
           </div>
 
           <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+            <div>
+              <span className="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
+                Quick range
+              </span>
+              <div className="flex h-9 overflow-hidden rounded-lg border border-line bg-panel-2 p-0.5">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onPreset(1)}
+                  className={`rounded-md px-3 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    activePreset === 'today'
+                      ? 'bg-lime-fill text-[#18200c] shadow-sm'
+                      : 'text-muted hover:bg-panel hover:text-ink'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onPreset(3)}
+                  className={`rounded-md px-3 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    activePreset === '3d'
+                      ? 'bg-lime-fill text-[#18200c] shadow-sm'
+                      : 'text-muted hover:bg-panel hover:text-ink'
+                  }`}
+                >
+                  3D
+                </button>
+              </div>
+            </div>
             <label className="block">
               <span className="mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
                 Start date
