@@ -124,17 +124,27 @@ function InboxRiskBadge({
         buttonRef.current?.focus()
       }
     }
-    const closeOnViewportChange = () => onOpenChange(false)
+    const closeOnResize = () => onOpenChange(false)
+    const closeOnOutsideScroll = (event: Event) => {
+      const target = event.target
+      if (
+        target instanceof Node &&
+        popoverRef.current?.contains(target)
+      ) {
+        return
+      }
+      onOpenChange(false)
+    }
 
     document.addEventListener('pointerdown', closeIfOutside)
     document.addEventListener('keydown', closeOnEscape)
-    window.addEventListener('resize', closeOnViewportChange)
-    window.addEventListener('scroll', closeOnViewportChange, true)
+    window.addEventListener('resize', closeOnResize)
+    window.addEventListener('scroll', closeOnOutsideScroll, true)
     return () => {
       document.removeEventListener('pointerdown', closeIfOutside)
       document.removeEventListener('keydown', closeOnEscape)
-      window.removeEventListener('resize', closeOnViewportChange)
-      window.removeEventListener('scroll', closeOnViewportChange, true)
+      window.removeEventListener('resize', closeOnResize)
+      window.removeEventListener('scroll', closeOnOutsideScroll, true)
     }
   }, [open, onOpenChange])
 
