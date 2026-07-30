@@ -37,7 +37,6 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
-const DOMAIN_BOUNCE_RISKS_URL = '/api/domain-bounce-risks'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -435,8 +434,12 @@ export async function fetchDomainBounceRisks(
   startDate: string,
   endDate: string,
 ): Promise<DomainBounceRisk[]> {
-  const params = new URLSearchParams({ start: startDate, end: endDate })
-  const res = await fetch(`${DOMAIN_BOUNCE_RISKS_URL}?${params}`, {
+  const params = new URLSearchParams({
+    start: startDate,
+    end: endDate,
+    mode: 'risks',
+  })
+  const res = await fetch(`${DOMAIN_HEALTH_URL}?${params}`, {
     method: 'GET',
     headers: authHeaders(jwt),
   })
