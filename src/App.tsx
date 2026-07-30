@@ -191,20 +191,24 @@ export default function App() {
     void refresh()
   }, [refresh])
 
-  const loadDomainHealth = useCallback(async (startDate: string, endDate: string) => {
+  const loadDomainHealth = useCallback(async (
+    startDate: string,
+    endDate: string,
+    refreshAccounts: boolean,
+  ) => {
     if (!startDate || !endDate || startDate > endDate) {
       return
     }
     setDomainLoading(true)
     setDomainError(null)
     const [accountsResult, metricsResult] = await Promise.allSettled([
-      fetchEmailAccounts(''),
+      refreshAccounts ? fetchEmailAccounts('') : Promise.resolve(null),
       fetchDomainHealthMetrics('', startDate, endDate),
     ])
 
     const failures: string[] = []
     if (accountsResult.status === 'fulfilled') {
-      setAccounts(accountsResult.value)
+      if (accountsResult.value) setAccounts(accountsResult.value)
     } else {
       failures.push(
         `Mailbox DNS data: ${accountsResult.reason?.message ?? accountsResult.reason}`,
@@ -225,7 +229,12 @@ export default function App() {
   }, [])
 
   const refreshDomainHealth = useCallback(
-    () => loadDomainHealth(domainStartDate, domainEndDate),
+    () => loadDomainHealth(domainStartDate, domainEndDate, true),
+    [domainEndDate, domainStartDate, loadDomainHealth],
+  )
+
+  const applyDomainRange = useCallback(
+    () => loadDomainHealth(domainStartDate, domainEndDate, false),
     [domainEndDate, domainStartDate, loadDomainHealth],
   )
 
@@ -236,7 +245,7 @@ export default function App() {
       const startDate = getIstDateOffset(days - 1, now)
       setDomainStartDate(startDate)
       setDomainEndDate(endDate)
-      void loadDomainHealth(startDate, endDate)
+      void loadDomainHealth(startDate, endDate, false)
     },
     [loadDomainHealth],
   )
@@ -462,7 +471,7 @@ export default function App() {
             endDate={domainEndDate}
             onStartDateChange={setDomainStartDate}
             onEndDateChange={setDomainEndDate}
-            onApply={refreshDomainHealth}
+            onApply={applyDomainRange}
             onPreset={applyDomainPreset}
           />
         )}
