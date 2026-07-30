@@ -1,5 +1,14 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import type { DomainHealthRow } from '../types'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import type { DomainBounceRisk, DomainHealthRow } from '../types'
 
 const fmt = (value: number) => value.toLocaleString()
 const pct = (value: number) => `${value.toFixed(2)}%`
@@ -43,6 +52,235 @@ function inboxRiskTitle(row: DomainHealthRow): string {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+function riskTimestamp(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Kolkata',
+  }).format(date)
+}
+
+function InboxRiskBadge({
+  domain,
+  risk,
+  open,
+  onOpenChange,
+}: {
+  domain: string
+  risk: DomainBounceRisk
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const popoverId = useId()
+  const [position, setPosition] = useState({ left: 12, top: 12 })
+
+  const updatePosition = () => {
+    const button = buttonRef.current
+    const popover = popoverRef.current
+    if (!button || !popover) return
+
+    const gap = 8
+    const viewportPadding = 12
+    const buttonRect = button.getBoundingClientRect()
+    const popoverRect = popover.getBoundingClientRect()
+    const left = Math.min(
+      Math.max(viewportPadding, buttonRect.right - popoverRect.width),
+      window.innerWidth - popoverRect.width - viewportPadding,
+    )
+    const roomBelow = window.innerHeight - buttonRect.bottom - viewportPadding
+    const top =
+      roomBelow >= popoverRect.height + gap
+        ? buttonRect.bottom + gap
+        : Math.max(viewportPadding, buttonRect.top - popoverRect.height - gap)
+
+    setPosition({ left, top })
+  }
+
+  useLayoutEffect(() => {
+    if (open) updatePosition()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+
+    const closeIfOutside = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (
+        !buttonRef.current?.contains(target) &&
+        !popoverRef.current?.contains(target)
+      ) {
+        onOpenChange(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onOpenChange(false)
+        buttonRef.current?.focus()
+      }
+    }
+    const closeOnViewportChange = () => onOpenChange(false)
+
+    document.addEventListener('pointerdown', closeIfOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', closeOnViewportChange)
+    window.addEventListener('scroll', closeOnViewportChange, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeIfOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', closeOnViewportChange)
+      window.removeEventListener('scroll', closeOnViewportChange, true)
+    }
+  }, [open, onOpenChange])
+
+  const latestSample = risk.samples[0]
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? popoverId : undefined}
+        aria-label={`Show inbox risk details for ${domain}: ${risk.total} events across ${risk.affectedInboxes} inboxes`}
+        className={`inline-flex items-center gap-1.5 rounded-full bg-critical/10 px-2.5 py-1 text-[10px] font-medium text-critical ring-1 ring-inset ring-critical/25 transition hover:bg-critical/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-critical/70 ${
+          open ? 'bg-critical/15 ring-critical/50' : ''
+        }`}
+        title="Click to view inbox risk details"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span aria-hidden="true">!</span>
+        <span>{fmt(risk.total)}</span>
+        <span aria-hidden="true" className="text-critical/55">
+          /
+        </span>
+        <span>{fmt(risk.affectedInboxes)}</span>
+        <span
+          aria-hidden="true"
+          className={`ml-0.5 text-[8px] transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        >
+          ▼
+        </span>
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            id={popoverId}
+            role="dialog"
+            aria-label={`Inbox risk details for ${domain}`}
+            className="fixed z-[100] w-[min(340px,calc(100vw-24px))] whitespace-normal rounded-xl border border-critical/25 bg-panel p-4 text-left shadow-2xl shadow-black/40"
+            style={{ left: position.left, top: position.top }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-critical">
+                  Inbox risk
+                </div>
+                <div className="mt-1 truncate text-[13px] font-semibold text-ink">
+                  {domain}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-base text-muted transition hover:bg-white/[0.05] hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-critical/60"
+                aria-label="Close inbox risk details"
+                onClick={() => {
+                  onOpenChange(false)
+                  buttonRef.current?.focus()
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-line bg-panel-2 px-3 py-2">
+                <div className="text-[9px] uppercase tracking-[0.1em] text-muted">
+                  Risk events
+                </div>
+                <div className="tnum mt-0.5 text-[17px] font-semibold text-critical">
+                  {fmt(risk.total)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-line bg-panel-2 px-3 py-2">
+                <div className="text-[9px] uppercase tracking-[0.1em] text-muted">
+                  Affected inboxes
+                </div>
+                <div className="tnum mt-0.5 text-[17px] font-semibold text-critical">
+                  {fmt(risk.affectedInboxes)}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted">
+                Reasons
+              </div>
+              <div className="mt-1.5 space-y-1.5">
+                {risk.categories.map((category) => (
+                  <div
+                    key={category.category}
+                    className="flex items-center justify-between gap-3 rounded-lg bg-critical/[0.07] px-2.5 py-1.5"
+                  >
+                    <span className="text-[11px] text-ink">
+                      {category.label}
+                    </span>
+                    <span className="tnum text-[11px] font-semibold text-critical">
+                      {fmt(category.count)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted">
+                Affected inboxes
+              </div>
+              <div className="mt-1.5 max-h-28 space-y-1 overflow-y-auto pr-1">
+                {risk.inboxes.map((inbox) => (
+                  <div
+                    key={inbox}
+                    className="truncate rounded-md bg-white/[0.035] px-2.5 py-1.5 text-[10px] text-muted"
+                    title={inbox}
+                  >
+                    {inbox}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {latestSample?.diagnostic && (
+              <div className="mt-3 border-t border-line pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted">
+                    Latest diagnostic
+                  </span>
+                  {risk.latestAt && (
+                    <span className="text-[9px] text-faint">
+                      {riskTimestamp(risk.latestAt)}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1.5 max-h-20 overflow-y-auto break-words text-[10px] leading-relaxed text-muted">
+                  {latestSample.diagnostic}
+                </p>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
 }
 
 function SortHeader({
@@ -144,6 +382,7 @@ export default function DomainHealthPage({
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('bounceRate')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [openRiskDomain, setOpenRiskDomain] = useState<string | null>(null)
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
   const now = new Date()
   const today = IST_DATE_FORMAT.format(now)
@@ -611,14 +850,14 @@ export default function DomainHealthPage({
                     </td>
                     <td className={`${TD} text-left`}>
                       {row.inboxRisk ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full bg-critical/10 px-2.5 py-1 text-[10px] font-medium text-critical ring-1 ring-inset ring-critical/25"
-                          title={inboxRiskTitle(row)}
-                        >
-                          <span>!</span>
-                          {fmt(row.inboxRisk.total)} /{' '}
-                          {fmt(row.inboxRisk.affectedInboxes)}
-                        </span>
+                        <InboxRiskBadge
+                          domain={row.domain}
+                          risk={row.inboxRisk}
+                          open={openRiskDomain === row.domain}
+                          onOpenChange={(open) =>
+                            setOpenRiskDomain(open ? row.domain : null)
+                          }
+                        />
                       ) : (
                         <span
                           className="text-faint"
