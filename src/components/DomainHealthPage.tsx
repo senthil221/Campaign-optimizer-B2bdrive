@@ -25,8 +25,25 @@ type SortKey =
   | 'replyRate'
   | 'avgWarmupReputation'
   | 'dnsStatus'
+  | 'inboxRisk'
 
 type SortDirection = 'asc' | 'desc'
+
+function inboxRiskTitle(row: DomainHealthRow): string {
+  const risk = row.inboxRisk
+  if (!risk) return 'No matching sender-infrastructure bounce detected.'
+  const categorySummary = risk.categories
+    .map((category) => `${category.label}: ${category.count}`)
+    .join(', ')
+  const sample = risk.samples[0]
+  return [
+    categorySummary,
+    `Affected inboxes: ${risk.inboxes.join(', ')}`,
+    sample?.diagnostic ? `Latest diagnostic: ${sample.diagnostic}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
 
 function SortHeader({
   label,
@@ -148,6 +165,9 @@ export default function DomainHealthPage({
             row.domain.includes(query) ||
             row.tagNames.some((tagName) =>
               tagName.toLowerCase().includes(query),
+            ) ||
+            row.inboxRisk?.inboxes.some((inbox) =>
+              inbox.toLowerCase().includes(query),
             ),
         )
       : rows
@@ -176,6 +196,8 @@ export default function DomainHealthPage({
           return row.avgWarmupReputation ?? -1
         case 'dnsStatus':
           return row.missingDns.length
+        case 'inboxRisk':
+          return row.inboxRisk?.total ?? 0
       }
     }
 
@@ -202,6 +224,11 @@ export default function DomainHealthPage({
       replyRate: sent > 0 ? (replied / sent) * 100 : 0,
       bounceRate: sent > 0 ? (bounced / sent) * 100 : 0,
       dnsValidated: rows.filter((row) => row.dnsValidated).length,
+      riskDomains: rows.filter((row) => row.inboxRisk).length,
+      riskInboxes: rows.reduce(
+        (sum, row) => sum + (row.inboxRisk?.affectedInboxes ?? 0),
+        0,
+      ),
     }
   }, [rows])
 
@@ -344,8 +371,13 @@ export default function DomainHealthPage({
             tone={
               totals.dnsValidated === rows.length && rows.length > 0
                 ? 'positive'
-                : 'warn'
+              : 'warn'
             }
+          />
+          <SummaryStat
+            label="Risk domains / inboxes"
+            value={`${totals.riskDomains} / ${totals.riskInboxes}`}
+            tone={totals.riskDomains > 0 ? 'critical' : 'positive'}
           />
         </div>
       </section>
@@ -480,6 +512,14 @@ export default function DomainHealthPage({
                     align="left"
                     onSort={sortBy}
                   />
+                  <SortHeader
+                    label="Inbox risk"
+                    sortKey="inboxRisk"
+                    activeKey={sortKey}
+                    direction={sortDirection}
+                    align="left"
+                    onSort={sortBy}
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -566,6 +606,27 @@ export default function DomainHealthPage({
                           title={`Missing ${row.missingDns.join(', ')}`}
                         >
                           Missing {row.missingDns.join(', ')}
+                        </span>
+                      )}
+                    </td>
+                    <td className={`${TD} text-left`}>
+                      {row.inboxRisk ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full bg-critical/10 px-2.5 py-1 text-[10px] font-medium text-critical ring-1 ring-inset ring-critical/25"
+                          title={inboxRiskTitle(row)}
+                        >
+                          <span>!</span>
+                          {fmt(row.inboxRisk.total)} alert
+                          {row.inboxRisk.total === 1 ? '' : 's'} ·{' '}
+                          {fmt(row.inboxRisk.affectedInboxes)} inbox
+                          {row.inboxRisk.affectedInboxes === 1 ? '' : 'es'}
+                        </span>
+                      ) : (
+                        <span
+                          className="text-faint"
+                          title={inboxRiskTitle(row)}
+                        >
+                          —
                         </span>
                       )}
                     </td>

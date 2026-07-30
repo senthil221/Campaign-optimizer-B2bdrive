@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Campaign,
   CampaignTagMap,
+  DomainBounceRisk,
   DomainHealthMetric,
   EmailAccount,
 } from './types'
@@ -9,6 +10,7 @@ import {
   fetchCampaignInbox,
   fetchCampaignSequences,
   fetchEmailAccounts,
+  fetchDomainBounceRisks,
   fetchDomainHealthMetrics,
   fetchTagSendPerformance,
   fetchSequenceEditor,
@@ -117,6 +119,9 @@ export default function App() {
   const [domainStartDate, setDomainStartDate] = useState(getPreviousIstDate)
   const [domainEndDate, setDomainEndDate] = useState(getPreviousIstDate)
   const [domainMetrics, setDomainMetrics] = useState<DomainHealthMetric[]>([])
+  const [domainBounceRisks, setDomainBounceRisks] = useState<
+    DomainBounceRisk[]
+  >([])
   const [domainLoading, setDomainLoading] = useState(false)
   const [domainLoaded, setDomainLoaded] = useState(false)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -191,42 +196,55 @@ export default function App() {
     void refresh()
   }, [refresh])
 
-  const loadDomainHealth = useCallback(async (
-    startDate: string,
-    endDate: string,
-    refreshAccounts: boolean,
-  ) => {
-    if (!startDate || !endDate || startDate > endDate) {
-      return
-    }
-    setDomainLoading(true)
-    setDomainError(null)
-    const [accountsResult, metricsResult] = await Promise.allSettled([
-      refreshAccounts ? fetchEmailAccounts('') : Promise.resolve(null),
-      fetchDomainHealthMetrics('', startDate, endDate),
-    ])
+  const loadDomainHealth = useCallback(
+    async (
+      startDate: string,
+      endDate: string,
+      refreshAccounts: boolean,
+    ) => {
+      if (!startDate || !endDate || startDate > endDate) {
+        return
+      }
+      setDomainLoading(true)
+      setDomainError(null)
+      const [accountsResult, metricsResult, risksResult] =
+        await Promise.allSettled([
+          refreshAccounts ? fetchEmailAccounts('') : Promise.resolve(null),
+          fetchDomainHealthMetrics('', startDate, endDate),
+          fetchDomainBounceRisks('', startDate, endDate),
+        ])
 
-    const failures: string[] = []
-    if (accountsResult.status === 'fulfilled') {
-      if (accountsResult.value) setAccounts(accountsResult.value)
-    } else {
-      failures.push(
-        `Mailbox DNS data: ${accountsResult.reason?.message ?? accountsResult.reason}`,
-      )
-    }
-    if (metricsResult.status === 'fulfilled') {
-      setDomainMetrics(metricsResult.value)
-    } else {
-      failures.push(
-        `Domain analytics: ${metricsResult.reason?.message ?? metricsResult.reason}`,
-      )
-    }
+      const failures: string[] = []
+      if (accountsResult.status === 'fulfilled') {
+        if (accountsResult.value) setAccounts(accountsResult.value)
+      } else {
+        failures.push(
+          `Mailbox DNS data: ${accountsResult.reason?.message ?? accountsResult.reason}`,
+        )
+      }
+      if (metricsResult.status === 'fulfilled') {
+        setDomainMetrics(metricsResult.value)
+      } else {
+        failures.push(
+          `Domain analytics: ${metricsResult.reason?.message ?? metricsResult.reason}`,
+        )
+      }
+      if (risksResult.status === 'fulfilled') {
+        setDomainBounceRisks(risksResult.value)
+      } else {
+        setDomainBounceRisks([])
+        failures.push(
+          `Inbox risk: ${risksResult.reason?.message ?? risksResult.reason}`,
+        )
+      }
 
-    setDomainError(failures.length > 0 ? failures.join('  •  ') : null)
-    setDomainLoaded(true)
-    setDomainLastUpdated(new Date())
-    setDomainLoading(false)
-  }, [])
+      setDomainError(failures.length > 0 ? failures.join('  •  ') : null)
+      setDomainLoaded(true)
+      setDomainLastUpdated(new Date())
+      setDomainLoading(false)
+    },
+    [],
+  )
 
   const refreshDomainHealth = useCallback(
     () => loadDomainHealth(domainStartDate, domainEndDate, true),
@@ -287,8 +305,8 @@ export default function App() {
   )
 
   const domainRows = useMemo(
-    () => buildDomainHealthRows(domainMetrics, accounts),
-    [domainMetrics, accounts],
+    () => buildDomainHealthRows(domainMetrics, accounts, domainBounceRisks),
+    [domainMetrics, accounts, domainBounceRisks],
   )
 
   const kpis = useMemo(() => {

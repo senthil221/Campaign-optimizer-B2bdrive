@@ -121,6 +121,34 @@ export interface DomainHealthMetric {
   bounceRate: number
 }
 
+export type BounceRiskCategory =
+  | 'tenant_threshold'
+  | 'spam_rejected'
+  | 'sender_550'
+
+export interface BounceRiskSample {
+  senderEmail: string
+  category: BounceRiskCategory
+  label: string
+  occurredAt: string
+  diagnostic: string
+  senderBounce: boolean
+}
+
+export interface DomainBounceRisk {
+  domain: string
+  total: number
+  affectedInboxes: number
+  latestAt: string
+  inboxes: string[]
+  categories: Array<{
+    category: BounceRiskCategory
+    label: string
+    count: number
+  }>
+  samples: BounceRiskSample[]
+}
+
 export interface DomainHealthRow extends DomainHealthMetric {
   tagNames: string[]
   accountCount: number
@@ -131,6 +159,7 @@ export interface DomainHealthRow extends DomainHealthMetric {
   dmarcVerified: boolean
   dnsValidated: boolean
   missingDns: string[]
+  inboxRisk: DomainBounceRisk | null
 }
 
 export interface TagVolume {

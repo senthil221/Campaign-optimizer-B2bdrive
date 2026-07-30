@@ -6,6 +6,7 @@ import type {
   CampaignSequencePayload,
   EditableSequence,
   EditableVariant,
+  DomainBounceRisk,
   DomainHealthMetric,
   EmailAccount,
   InboxReply,
@@ -36,6 +37,7 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
+const DOMAIN_BOUNCE_RISKS_URL = '/api/domain-bounce-risks'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -426,6 +428,92 @@ export async function fetchDomainHealthMetrics(
       }
     })
     .filter((row): row is DomainHealthMetric => row !== null)
+}
+
+export async function fetchDomainBounceRisks(
+  jwt: string,
+  startDate: string,
+  endDate: string,
+): Promise<DomainBounceRisk[]> {
+  const params = new URLSearchParams({ start: startDate, end: endDate })
+  const res = await fetch(`${DOMAIN_BOUNCE_RISKS_URL}?${params}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Inbox risk request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Inbox risk response was not valid JSON: ${preview(text)}`)
+  }
+
+  const categories = new Set([
+    'tenant_threshold',
+    'spam_rejected',
+    'sender_550',
+  ])
+  const rows = extractArray(json, ['risks']) ?? []
+  return rows
+    .map((value): DomainBounceRisk | null => {
+      const row = (value ?? {}) as Record<string, unknown>
+      const domain = String(row.domain ?? '').trim().toLowerCase()
+      if (!domain) return null
+      const categoryRows = Array.isArray(row.categories) ? row.categories : []
+      const sampleRows = Array.isArray(row.samples) ? row.samples : []
+      return {
+        domain,
+        total: num(row.total, 0),
+        affectedInboxes: num(row.affectedInboxes, 0),
+        latestAt: String(row.latestAt ?? ''),
+        inboxes: Array.isArray(row.inboxes)
+          ? row.inboxes.map(String).filter(Boolean)
+          : [],
+        categories: categoryRows
+          .map((categoryValue) => {
+            const category = (categoryValue ?? {}) as Record<string, unknown>
+            const id = String(category.category ?? '')
+            if (!categories.has(id)) return null
+            return {
+              category: id as DomainBounceRisk['categories'][number]['category'],
+              label: String(category.label ?? ''),
+              count: num(category.count, 0),
+            }
+          })
+          .filter(
+            (
+              category,
+            ): category is DomainBounceRisk['categories'][number] =>
+              category !== null,
+          ),
+        samples: sampleRows
+          .map((sampleValue) => {
+            const sample = (sampleValue ?? {}) as Record<string, unknown>
+            const category = String(sample.category ?? '')
+            if (!categories.has(category)) return null
+            return {
+              senderEmail: String(sample.senderEmail ?? ''),
+              category:
+                category as DomainBounceRisk['samples'][number]['category'],
+              label: String(sample.label ?? ''),
+              occurredAt: String(sample.occurredAt ?? ''),
+              diagnostic: String(sample.diagnostic ?? ''),
+              senderBounce: sample.senderBounce === true,
+            }
+          })
+          .filter(
+            (sample): sample is DomainBounceRisk['samples'][number] =>
+              sample !== null,
+          ),
+      }
+    })
+    .filter((row): row is DomainBounceRisk => row !== null)
 }
 
 // ---------------------------------------------------------------------------

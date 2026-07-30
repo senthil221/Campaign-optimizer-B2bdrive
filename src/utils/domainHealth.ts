@@ -1,4 +1,5 @@
 import type {
+  DomainBounceRisk,
   DomainHealthMetric,
   DomainHealthRow,
   EmailAccount,
@@ -12,6 +13,7 @@ function emailDomain(email: string): string {
 export function buildDomainHealthRows(
   metrics: DomainHealthMetric[],
   accounts: EmailAccount[],
+  bounceRisks: DomainBounceRisk[] = [],
 ): DomainHealthRow[] {
   const metricMap = new Map<
     string,
@@ -69,7 +71,14 @@ export function buildDomainHealthRows(
     accountMap.set(domain, current)
   }
 
-  const domains = new Set([...metricMap.keys(), ...accountMap.keys()])
+  const riskMap = new Map(
+    bounceRisks.map((risk) => [risk.domain.trim().toLowerCase(), risk]),
+  )
+  const domains = new Set([
+    ...metricMap.keys(),
+    ...accountMap.keys(),
+    ...riskMap.keys(),
+  ])
   return Array.from(domains)
     .map((domain): DomainHealthRow => {
       const metric = metricMap.get(domain) ?? { sent: 0, replied: 0, bounced: 0 }
@@ -105,6 +114,7 @@ export function buildDomainHealthRows(
         dmarcVerified,
         dnsValidated: missingDns.length === 0,
         missingDns,
+        inboxRisk: riskMap.get(domain) ?? null,
       }
     })
     .sort(
