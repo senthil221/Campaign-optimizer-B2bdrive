@@ -144,11 +144,12 @@ export default function App() {
     setError(errs.length ? errs.join('  •  ') : null)
     if (sendsRes.status === 'fulfilled') {
       const next: Record<string, number> = {}
-      for (const row of sendsRes.value) {
+      for (const row of sendsRes.value.rows) {
         if (row.tagId) next[`id:${row.tagId}`] = row.sent
         if (row.tagName) next[`name:${row.tagName.toLowerCase()}`] = row.sent
       }
       setTagSends(next)
+      setReportingDate(sendsRes.value.reportingDate)
     } else {
       nextWarnings.push(
         `Live sent counts unavailable: ${sendsRes.reason?.message ?? sendsRes.reason}`,

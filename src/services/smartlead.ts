@@ -309,7 +309,7 @@ export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
  * Smartlead returns one tag row per email provider. Sum duplicate tags so the
  * overview exposes a single live count for each sending pool.
  */
-export async function fetchTagSendPerformance(
+async function fetchTagSendPerformanceForDate(
   jwt: string,
   date: string,
 ): Promise<TagSendPerformance[]> {
@@ -352,6 +352,26 @@ export async function fetchTagSendPerformance(
   }
 
   return Array.from(aggregated.values())
+}
+
+export async function fetchTagSendPerformance(
+  jwt: string,
+  date: string,
+): Promise<{ rows: TagSendPerformance[]; reportingDate: string }> {
+  const rows = await fetchTagSendPerformanceForDate(jwt, date)
+  if (rows.length > 0) return { rows, reportingDate: date }
+
+  // Smartlead can keep the latest completed reporting day under yesterday's
+  // date even after its 03:00 IST counter rollover. Avoid an empty column by
+  // falling back one day, while returning the actual date shown in the UI.
+  const previous = new Date(`${date}T12:00:00Z`)
+  previous.setUTCDate(previous.getUTCDate() - 1)
+  const previousDate = previous.toISOString().slice(0, 10)
+  const previousRows = await fetchTagSendPerformanceForDate(jwt, previousDate)
+  return {
+    rows: previousRows,
+    reportingDate: previousRows.length > 0 ? previousDate : date,
+  }
 }
 
 // ---------------------------------------------------------------------------
