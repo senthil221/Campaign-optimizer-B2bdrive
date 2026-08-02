@@ -39,7 +39,7 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | `GET /api/email-accounts?offset=` | `/api/email-account/get-total-email-accounts` |
 | `GET /api/campaign-list?offset=`  | `/api/email-campaigns/get-all-campaigns` (incl. campaign tags) |
 | `POST /api/campaign-analytics`    | `/api/email-campaigns/get-campaign-analytics` |
-| `POST /api/domain-settings`       | Hypertide's Smartlead bulk settings helper |
+| `POST /api/email-accounts`        | Hypertide's Smartlead bulk settings helper |
 
 ### Domain management
 
@@ -56,7 +56,7 @@ Select one or more domains to bulk update all matching inboxes:
 - warmup maximum, ramp value/toggle, reply rate, and tag identifier.
 
 The browser posts the selected inbox rows to the same-origin
-`/api/domain-settings` function. The function validates that every inbox
+`/api/email-accounts` function. The function validates that every inbox
 belongs to a selected domain, injects `SMARTLEAD_JWT` server-side, and relays
 the request to the Hypertide endpoints supplied for this workflow. The JWT is
 never returned to or stored in the browser.

@@ -38,7 +38,7 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
-const DOMAIN_SETTINGS_URL = '/api/domain-settings'
+const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
