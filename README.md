@@ -39,6 +39,27 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | `GET /api/email-accounts?offset=` | `/api/email-account/get-total-email-accounts` |
 | `GET /api/campaign-list?offset=`  | `/api/email-campaigns/get-all-campaigns` (incl. campaign tags) |
 | `POST /api/campaign-analytics`    | `/api/email-campaigns/get-campaign-analytics` |
+| `POST /api/domain-settings`       | Hypertide's Smartlead bulk settings helper |
+
+### Domain management
+
+The **Domain management** tab groups the already-loaded inboxes by the domain
+portion of `from_email`. When every inbox on a domain has the same
+`message_per_day`, that shared value is shown as the **Domain daily limit**.
+Domains with inconsistent inbox settings are labelled with their minimum and
+maximum instead of presenting the summed capacity as a per-inbox limit.
+
+Select one or more domains to bulk update all matching inboxes:
+
+- existing Smartlead tags;
+- outbound `messagePerDay` and `minTimeToWaitInMins`;
+- warmup maximum, ramp value/toggle, reply rate, and tag identifier.
+
+The browser posts the selected inbox rows to the same-origin
+`/api/domain-settings` function. The function validates that every inbox
+belongs to a selected domain, injects `SMARTLEAD_JWT` server-side, and relays
+the request to the Hypertide endpoints supplied for this workflow. The JWT is
+never returned to or stored in the browser.
 
 ### Deploy on Vercel
 1. Import the repo into Vercel (framework auto-detected as **Vite**, functions auto-detected in `/api`).

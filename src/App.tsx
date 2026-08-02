@@ -3,6 +3,7 @@ import type {
   Campaign,
   CampaignTagMap,
   DomainBounceRisk,
+  DomainBulkUpdateRequest,
   DomainHealthMetric,
   EmailAccount,
 } from './types'
@@ -17,6 +18,7 @@ import {
   loadCampaigns,
   saveSequenceEdit,
   updateCampaignStatus,
+  updateDomainSettings,
   updateMaxLeadsPerDay,
   type CampaignStatusAction,
   type InboxQuery,
@@ -46,6 +48,7 @@ import CampaignPerformanceTable, {
   PERF_COLUMNS,
 } from './components/CampaignPerformanceTable'
 import DomainHealthPage from './components/DomainHealthPage'
+import DomainManagementPage from './components/DomainManagementPage'
 import { buildDomainHealthRows } from './utils/domainHealth'
 
 // Default: every column visible. Stored prefs are merged over this so a newly
@@ -126,6 +129,10 @@ export default function App() {
   const [domainLoaded, setDomainLoaded] = useState(false)
   const [domainError, setDomainError] = useState<string | null>(null)
   const [domainLastUpdated, setDomainLastUpdated] = useState<Date | null>(null)
+  const [managementLoading, setManagementLoading] = useState(false)
+  const [managementError, setManagementError] = useState<string | null>(null)
+  const [managementLastUpdated, setManagementLastUpdated] =
+    useState<Date | null>(null)
 
   // Latest campaigns, for reverting an optimistic edit without stale closures.
   const campaignsRef = useRef<Campaign[]>([])
@@ -268,6 +275,46 @@ export default function App() {
     [loadDomainHealth],
   )
 
+  const refreshDomainManagement = useCallback(async () => {
+    setManagementLoading(true)
+    setManagementError(null)
+    try {
+      setAccounts(await fetchEmailAccounts(''))
+      setManagementLastUpdated(new Date())
+    } catch (refreshError) {
+      setManagementError(
+        refreshError instanceof Error
+          ? refreshError.message
+          : String(refreshError),
+      )
+    } finally {
+      setManagementLoading(false)
+    }
+  }, [])
+
+  const handleDomainSettingsUpdate = useCallback(
+    async (request: DomainBulkUpdateRequest): Promise<string> => {
+      const result = await updateDomainSettings('', request)
+      setManagementLoading(true)
+      setManagementError(null)
+      try {
+        setAccounts(await fetchEmailAccounts(''))
+        setManagementLastUpdated(new Date())
+        return result.message
+      } catch (refreshError) {
+        const detail =
+          refreshError instanceof Error
+            ? refreshError.message
+            : String(refreshError)
+        setManagementError(`Settings updated, but refresh failed: ${detail}`)
+        return `${result.message} Refresh the page to confirm the latest values.`
+      } finally {
+        setManagementLoading(false)
+      }
+    },
+    [],
+  )
+
   useEffect(() => {
     if (activePage === 'domains' && !domainLoaded && !domainLoading) {
       void applyDomainRange()
@@ -400,14 +447,28 @@ export default function App() {
   return (
     <div className="min-h-full">
       <Header
-        loading={activePage === 'campaigns' ? loading : domainLoading}
+        loading={
+          activePage === 'campaigns'
+            ? loading
+            : activePage === 'domains'
+              ? domainLoading
+              : loading || managementLoading
+        }
         lastUpdated={
-          activePage === 'campaigns' ? lastUpdated : domainLastUpdated
+          activePage === 'campaigns'
+            ? lastUpdated
+            : activePage === 'domains'
+              ? domainLastUpdated
+              : managementLastUpdated ?? lastUpdated
         }
         emailsPerLead={emailsPerLead}
         onEmailsPerLeadChange={setEmailsPerLead}
         onRefresh={
-          activePage === 'campaigns' ? refresh : refreshDomainHealth
+          activePage === 'campaigns'
+            ? refresh
+            : activePage === 'domains'
+              ? refreshDomainHealth
+              : refreshDomainManagement
         }
         theme={theme}
         onThemeChange={setTheme}
@@ -480,7 +541,7 @@ export default function App() {
           onColumnsChange={setVisibleCols}
         />
           </>
-        ) : (
+        ) : activePage === 'domains' ? (
           <DomainHealthPage
             rows={domainRows}
             loading={domainLoading}
@@ -491,6 +552,13 @@ export default function App() {
             onEndDateChange={setDomainEndDate}
             onApply={applyDomainRange}
             onPreset={applyDomainPreset}
+          />
+        ) : (
+          <DomainManagementPage
+            accounts={accounts}
+            loading={loading || managementLoading}
+            error={managementError}
+            onUpdate={handleDomainSettingsUpdate}
           />
         )}
       </main>

@@ -1,4 +1,4 @@
-export type AppPage = 'campaigns' | 'domains'
+export type AppPage = 'campaigns' | 'domains' | 'domain-management'
 
 interface Props {
   loading: boolean
@@ -56,6 +56,7 @@ export default function Header({
             {([
               ['campaigns', 'Campaigns'],
               ['domains', 'Domain health'],
+              ['domain-management', 'Domain management'],
             ] as const).map(([page, label]) => (
               <button
                 key={page}

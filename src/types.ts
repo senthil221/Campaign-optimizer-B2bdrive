@@ -26,11 +26,15 @@ export interface RawDnsValidationStatus {
 export interface RawEmailAccount {
   id: number
   from_email?: string | null
+  from_name?: string | null
   message_per_day?: number | null
   daily_sent_count?: number | null
   is_smtp_success?: boolean | null
   is_imap_success?: boolean | null
   is_in_use?: boolean | null
+  smart_sender_flag?: string | null
+  smtp_host?: string | null
+  type?: string | null
   email_warmup_details?: RawWarmupDetails | null
   email_account_tag_mappings?: RawTagMapping[] | null
   dns_validation_status?: RawDnsValidationStatus | null
@@ -96,6 +100,7 @@ export interface RawCampaignListItem {
 export interface EmailAccount {
   id: number
   fromEmail: string
+  fromName: string
   messagePerDay: number
   dailySentCount: number
   warmupStatus: string
@@ -110,6 +115,49 @@ export interface EmailAccount {
   dnsLastVerifiedAt: string | null
   tagIds: number[]
   tagNames: string[]
+  /** Original Smartlead row, retained for the server-side bulk settings relay. */
+  rawAccount?: RawEmailAccount
+}
+
+export interface DomainManagementRow {
+  domain: string
+  accounts: EmailAccount[]
+  accountCount: number
+  connectedCount: number
+  totalDailyCapacity: number
+  dailyLimit: number | null
+  dailyLimitMin: number
+  dailyLimitMax: number
+  tagNames: string[]
+}
+
+export type DomainSettingsAction = 'tags' | 'outbound' | 'warmup'
+
+export interface DomainTagSettings {
+  tags: string[]
+}
+
+export interface DomainOutboundSettings {
+  messagePerDay: number
+  minTimeToWaitInMins: number
+  status: 'ACTIVE'
+}
+
+export interface DomainWarmupSettings {
+  isRampupEnabled: boolean
+  maxEmailPerDay: number
+  rampupValue: number
+  replyRate: number
+  status: 'ACTIVE'
+  warmupTagIdentifier: string
+}
+
+export interface DomainBulkUpdateRequest {
+  action: DomainSettingsAction
+  domains: string[]
+  accounts: EmailAccount[]
+  tags?: string[]
+  settings?: DomainOutboundSettings | DomainWarmupSettings
 }
 
 export interface DomainHealthMetric {

@@ -7,6 +7,7 @@ import type {
   EditableSequence,
   EditableVariant,
   DomainBounceRisk,
+  DomainBulkUpdateRequest,
   DomainHealthMetric,
   EmailAccount,
   InboxReply,
@@ -37,6 +38,7 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
+const DOMAIN_SETTINGS_URL = '/api/domain-settings'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -129,6 +131,7 @@ export function normalizeEmailAccount(
   return {
     id: num(raw?.id, 0),
     fromEmail: String(raw?.from_email ?? ''),
+    fromName: String(raw?.from_name ?? ''),
     messagePerDay: num(raw?.message_per_day, 0),
     dailySentCount: num(raw?.daily_sent_count, 0),
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
@@ -142,6 +145,57 @@ export function normalizeEmailAccount(
       typeof dns?.lastVerifiedTime === 'string' ? dns.lastVerifiedTime : null,
     tagIds,
     tagNames,
+    rawAccount: raw,
+  }
+}
+
+function bulkAccountPayload(account: EmailAccount): RawEmailAccount {
+  return (
+    account.rawAccount ?? {
+      id: account.id,
+      from_email: account.fromEmail,
+      from_name: account.fromName,
+      message_per_day: account.messagePerDay,
+      daily_sent_count: account.dailySentCount,
+      is_smtp_success: account.connected,
+      is_imap_success: account.connected,
+      is_in_use: account.isInUse,
+    }
+  )
+}
+
+export async function updateDomainSettings(
+  jwt: string,
+  request: DomainBulkUpdateRequest,
+): Promise<{ message: string }> {
+  const res = await fetch(DOMAIN_SETTINGS_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({
+      ...request,
+      accounts: request.accounts.map(bulkAccountPayload),
+    }),
+  })
+  const text = await res.text()
+  let payload: { message?: string; error?: string } = {}
+  try {
+    payload = JSON.parse(text) as { message?: string; error?: string }
+  } catch {
+    // The upstream helper occasionally returns plain text.
+  }
+  if (!res.ok) {
+    throw new Error(
+      payload.error ||
+        payload.message ||
+        `Bulk ${request.action} update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  return {
+    message:
+      payload.message ||
+      `Updated ${request.action} for ${request.domains.length} domain${
+        request.domains.length === 1 ? '' : 's'
+      }.`,
   }
 }
 
