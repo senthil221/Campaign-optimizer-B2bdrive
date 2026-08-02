@@ -27,6 +27,7 @@ export interface RawEmailAccount {
   id: number
   from_email?: string | null
   from_name?: string | null
+  created_at?: string | null
   message_per_day?: number | null
   daily_sent_count?: number | null
   is_smtp_success?: boolean | null
@@ -101,6 +102,7 @@ export interface EmailAccount {
   id: number
   fromEmail: string
   fromName: string
+  createdAt: string | null
   messagePerDay: number
   dailySentCount: number
   warmupStatus: string
@@ -124,6 +126,8 @@ export interface DomainManagementRow {
   accounts: EmailAccount[]
   accountCount: number
   connectedCount: number
+  createdAt: string | null
+  ageDays: number | null
   totalDailyCapacity: number
   dailyLimit: number | null
   dailyLimitMin: number

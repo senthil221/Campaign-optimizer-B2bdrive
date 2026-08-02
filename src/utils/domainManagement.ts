@@ -1,5 +1,7 @@
 import type { DomainManagementRow, EmailAccount } from '../types'
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 export function domainFromEmail(email: string): string {
   const normalized = email.trim().toLowerCase()
   const at = normalized.lastIndexOf('@')
@@ -26,6 +28,13 @@ export function buildDomainManagementRows(
     const tagNames = Array.from(
       new Set(domainAccounts.flatMap((account) => account.tagNames)),
     ).sort((a, b) => a.localeCompare(b))
+    const createdTimestamps = domainAccounts
+      .map((account) =>
+        account.createdAt ? Date.parse(account.createdAt) : Number.NaN,
+      )
+      .filter(Number.isFinite)
+    const earliestCreatedTimestamp =
+      createdTimestamps.length > 0 ? Math.min(...createdTimestamps) : null
 
     return {
       domain,
@@ -33,6 +42,17 @@ export function buildDomainManagementRows(
       accountCount: domainAccounts.length,
       connectedCount: domainAccounts.filter((account) => account.connected)
         .length,
+      createdAt:
+        earliestCreatedTimestamp === null
+          ? null
+          : new Date(earliestCreatedTimestamp).toISOString(),
+      ageDays:
+        earliestCreatedTimestamp === null
+          ? null
+          : Math.max(
+              0,
+              Math.floor((Date.now() - earliestCreatedTimestamp) / DAY_MS),
+            ),
       totalDailyCapacity: domainAccounts.reduce(
         (sum, account) => sum + account.messagePerDay,
         0,

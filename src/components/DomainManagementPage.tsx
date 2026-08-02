@@ -21,8 +21,26 @@ const LABEL =
   'mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted'
 
 function plural(count: number, word: string): string {
-  const pluralWord = word === 'inbox' ? 'inboxes' : `${word}s`
-  return `${count.toLocaleString()} ${count === 1 ? word : pluralWord}`
+  return `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
+}
+
+function formatDomainAge(days: number | null): string {
+  if (days === null) return '—'
+  if (days < 31) return `${days} day${days === 1 ? '' : 's'}`
+  if (days < 365) {
+    const months = Math.floor(days / 30)
+    return `${months} month${months === 1 ? '' : 's'}`
+  }
+  const years = days / 365
+  return `${years >= 10 ? Math.floor(years) : years.toFixed(1)} years`
+}
+
+function formatCreatedDate(value: string | null): string {
+  if (!value) return 'Account creation date unavailable'
+  return `First account added ${new Intl.DateTimeFormat('en-IN', {
+    dateStyle: 'medium',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(value))}`
 }
 
 function SettingsCard({
@@ -132,6 +150,16 @@ export default function DomainManagementPage({
     0,
   )
   const uniformDomains = rows.filter((row) => row.dailyLimit !== null).length
+  const knownDomainAges = rows.flatMap((row) =>
+    row.ageDays === null ? [] : [row.ageDays],
+  )
+  const averageDomainAge =
+    knownDomainAges.length > 0
+      ? Math.round(
+          knownDomainAges.reduce((sum, age) => sum + age, 0) /
+            knownDomainAges.length,
+        )
+      : null
 
   const toggleDomain = (domain: string) => {
     setSelected((current) => {
@@ -223,7 +251,7 @@ export default function DomainManagementPage({
             </div>
             <div className="tnum mt-0.5 text-[13px] font-semibold text-lime">
               {plural(selectedRows.length, 'domain')} ·{' '}
-              {plural(selectedAccounts.length, 'inbox')}
+              {plural(selectedAccounts.length, 'account')}
             </div>
           </div>
         </div>
@@ -243,7 +271,7 @@ export default function DomainManagementPage({
         <div className="flex divide-x divide-line overflow-x-auto">
           {[
             ['Domains', rows.length],
-            ['Inboxes', accounts.length],
+            ['Average domain age', formatDomainAge(averageDomainAge)],
             ['Total capacity / day', totalCapacity],
             ['Uniform limits', uniformDomains],
           ].map(([label, value]) => (
@@ -252,7 +280,7 @@ export default function DomainManagementPage({
                 {label}
               </div>
               <div className="tnum mt-1 text-[20px] font-semibold tracking-[-0.02em] text-ink">
-                {Number(value).toLocaleString()}
+                {typeof value === 'number' ? value.toLocaleString() : value}
               </div>
             </div>
           ))}
@@ -317,7 +345,7 @@ export default function DomainManagementPage({
                   </th>
                   {[
                     'Domain',
-                    'Inboxes',
+                    'Domain age',
                     'Domain daily limit',
                     'Total capacity / day',
                     'Tags',
@@ -354,8 +382,11 @@ export default function DomainManagementPage({
                       <td className="whitespace-nowrap px-3 py-2.5 text-[12px] font-medium text-ink">
                         {row.domain}
                       </td>
-                      <td className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] text-muted">
-                        {row.accountCount.toLocaleString()}
+                      <td
+                        className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] text-muted"
+                        title={formatCreatedDate(row.createdAt)}
+                      >
+                        {formatDomainAge(row.ageDays)}
                       </td>
                       <td className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] font-semibold text-ink">
                         {row.dailyLimit === null ? (
