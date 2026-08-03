@@ -91,10 +91,6 @@ function getIstDateOffset(daysAgo: number, now = new Date()): string {
   )
 }
 
-function getPreviousIstDate(now = new Date()): string {
-  return getIstDateOffset(1, now)
-}
-
 export default function App() {
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [activePage, setActivePage] = useState<AppPage>('campaigns')
@@ -119,8 +115,12 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [tagSends, setTagSends] = useState<Record<string, number>>({})
   const [reportingDate, setReportingDate] = useState(getReportingDate)
-  const [domainStartDate, setDomainStartDate] = useState(getPreviousIstDate)
-  const [domainEndDate, setDomainEndDate] = useState(getPreviousIstDate)
+  const [domainStartDate, setDomainStartDate] = useState(() =>
+    getIstDateOffset(2),
+  )
+  const [domainEndDate, setDomainEndDate] = useState(() =>
+    getIstDateOffset(0),
+  )
   const [domainMetrics, setDomainMetrics] = useState<DomainHealthMetric[]>([])
   const [domainBounceRisks, setDomainBounceRisks] = useState<
     DomainBounceRisk[]
@@ -130,6 +130,12 @@ export default function App() {
   const [domainError, setDomainError] = useState<string | null>(null)
   const [domainLastUpdated, setDomainLastUpdated] = useState<Date | null>(null)
   const [managementLoading, setManagementLoading] = useState(false)
+  const [managementDomainMetrics, setManagementDomainMetrics] = useState<
+    DomainHealthMetric[]
+  >([])
+  const [managementHealthLoaded, setManagementHealthLoaded] = useState(false)
+  const [managementMetricsAvailable, setManagementMetricsAvailable] =
+    useState(false)
   const [managementError, setManagementError] = useState<string | null>(null)
   const [managementLastUpdated, setManagementLastUpdated] =
     useState<Date | null>(null)
@@ -264,7 +270,7 @@ export default function App() {
   )
 
   const applyDomainPreset = useCallback(
-    (days: 1 | 3) => {
+    (days: 1 | 3 | 7) => {
       const now = new Date()
       const endDate = getIstDateOffset(0, now)
       const startDate = getIstDateOffset(days - 1, now)
@@ -278,18 +284,33 @@ export default function App() {
   const refreshDomainManagement = useCallback(async () => {
     setManagementLoading(true)
     setManagementError(null)
-    try {
-      setAccounts(await fetchEmailAccounts(''))
-      setManagementLastUpdated(new Date())
-    } catch (refreshError) {
-      setManagementError(
-        refreshError instanceof Error
-          ? refreshError.message
-          : String(refreshError),
+    const now = new Date()
+    const startDate = getIstDateOffset(2, now)
+    const endDate = getIstDateOffset(0, now)
+    const [accountsResult, metricsResult] = await Promise.allSettled([
+      fetchEmailAccounts(''),
+      fetchDomainHealthMetrics('', startDate, endDate),
+    ])
+    const failures: string[] = []
+    if (accountsResult.status === 'fulfilled') {
+      setAccounts(accountsResult.value)
+    } else {
+      failures.push(
+        `Accounts: ${accountsResult.reason?.message ?? accountsResult.reason}`,
       )
-    } finally {
-      setManagementLoading(false)
     }
+    if (metricsResult.status === 'fulfilled') {
+      setManagementDomainMetrics(metricsResult.value)
+      setManagementMetricsAvailable(true)
+    } else {
+      failures.push(
+        `Latest 3-day health: ${metricsResult.reason?.message ?? metricsResult.reason}`,
+      )
+    }
+    setManagementError(failures.length > 0 ? failures.join('  •  ') : null)
+    setManagementHealthLoaded(true)
+    setManagementLastUpdated(new Date())
+    setManagementLoading(false)
   }, [])
 
   const handleDomainSettingsUpdate = useCallback(
@@ -326,6 +347,21 @@ export default function App() {
     domainLoading,
   ])
 
+  useEffect(() => {
+    if (
+      activePage === 'domain-management' &&
+      !managementHealthLoaded &&
+      !managementLoading
+    ) {
+      void refreshDomainManagement()
+    }
+  }, [
+    activePage,
+    managementHealthLoaded,
+    managementLoading,
+    refreshDomainManagement,
+  ])
+
   // ---- Derived data (calculations kept out of the components) ----
   const realTags = useMemo(
     () => buildTagVolumes(accounts).filter((t) => t.tagName !== 'Untagged'),
@@ -354,6 +390,13 @@ export default function App() {
   const domainRows = useMemo(
     () => buildDomainHealthRows(domainMetrics, accounts, domainBounceRisks),
     [domainMetrics, accounts, domainBounceRisks],
+  )
+  const managementHealthRows = useMemo(
+    () =>
+      managementMetricsAvailable
+        ? buildDomainHealthRows(managementDomainMetrics, accounts)
+        : [],
+    [accounts, managementDomainMetrics, managementMetricsAvailable],
   )
 
   const kpis = useMemo(() => {
@@ -556,6 +599,7 @@ export default function App() {
         ) : (
           <DomainManagementPage
             accounts={accounts}
+            healthRows={managementHealthRows}
             loading={loading || managementLoading}
             error={managementError}
             onUpdate={handleDomainSettingsUpdate}

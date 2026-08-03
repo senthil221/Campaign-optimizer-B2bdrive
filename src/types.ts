@@ -124,13 +124,16 @@ export interface EmailAccount {
 export interface DomainManagementRow {
   domain: string
   accounts: EmailAccount[]
+  senderNames: Array<{
+    name: string
+    inboxCount: number
+  }>
   accountCount: number
   connectedCount: number
   warmupEnabledCount: number
   warmupState: 'enabled' | 'disabled' | 'mixed'
   createdAt: string | null
   ageDays: number | null
-  totalDailyCapacity: number
   dailyLimit: number | null
   dailyLimitMin: number
   dailyLimitMax: number

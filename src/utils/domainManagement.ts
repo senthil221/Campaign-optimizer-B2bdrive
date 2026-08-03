@@ -28,6 +28,17 @@ export function buildDomainManagementRows(
   }
 
   return Array.from(grouped, ([domain, domainAccounts]) => {
+    const senderNameMap = new Map<
+      string,
+      { name: string; inboxCount: number }
+    >()
+    for (const account of domainAccounts) {
+      const name = account.fromName.trim() || 'No sender name'
+      const key = name.toLowerCase()
+      const current = senderNameMap.get(key)
+      if (current) current.inboxCount += 1
+      else senderNameMap.set(key, { name, inboxCount: 1 })
+    }
     const limits = Array.from(
       new Set(domainAccounts.map((account) => account.messagePerDay)),
     ).sort((a, b) => a - b)
@@ -54,6 +65,9 @@ export function buildDomainManagementRows(
     return {
       domain,
       accounts: domainAccounts,
+      senderNames: Array.from(senderNameMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
       accountCount: domainAccounts.length,
       connectedCount: domainAccounts.filter((account) => account.connected)
         .length,
@@ -70,10 +84,6 @@ export function buildDomainManagementRows(
               0,
               Math.floor((Date.now() - earliestCreatedTimestamp) / DAY_MS),
             ),
-      totalDailyCapacity: domainAccounts.reduce(
-        (sum, account) => sum + account.messagePerDay,
-        0,
-      ),
       dailyLimit: limits.length === 1 ? limits[0] : null,
       dailyLimitMin: limits[0] ?? 0,
       dailyLimitMax: limits[limits.length - 1] ?? 0,

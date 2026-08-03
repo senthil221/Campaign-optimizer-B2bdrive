@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
   DomainBulkUpdateRequest,
+  DomainHealthRow,
   DomainOutboundSettings,
   DomainSettingsAction,
   DomainWarmupSettings,
@@ -14,6 +15,7 @@ import {
 
 interface Props {
   accounts: EmailAccount[]
+  healthRows: DomainHealthRow[]
   loading: boolean
   error: string | null
   onUpdate: (request: DomainBulkUpdateRequest) => Promise<string>
@@ -24,9 +26,17 @@ const INPUT =
 const LABEL =
   'mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted'
 
-type SortKey = 'domain' | 'ageDays' | 'dailyLimit' | 'totalDailyCapacity' | 'connected'
+type SortKey =
+  | 'domain'
+  | 'senderName'
+  | 'ageDays'
+  | 'dailyLimit'
+  | 'bounceRate'
+  | 'avgWarmupReputation'
+  | 'dnsStatus'
+  | 'connected'
 type SortDirection = 'asc' | 'desc'
-type OpenFilter = 'tags' | 'warmup' | null
+type OpenFilter = 'tags' | 'warmup' | 'sender' | null
 
 interface FilterOption {
   value: string
@@ -228,6 +238,7 @@ function ApplyButton({
 
 export default function DomainManagementPage({
   accounts,
+  healthRows,
   loading,
   error,
   onUpdate,
@@ -235,6 +246,7 @@ export default function DomainManagementPage({
   const rows = useMemo(() => buildDomainManagementRows(accounts), [accounts])
   const [tagFilter, setTagFilter] = useState('all')
   const [warmupFilter, setWarmupFilter] = useState('all')
+  const [senderFilter, setSenderFilter] = useState('all')
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
   const [sortKey, setSortKey] = useState<SortKey>('domain')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
@@ -284,6 +296,21 @@ export default function DomainManagementPage({
     ],
     [knownTags],
   )
+  const senderFilterOptions = useMemo<FilterOption[]>(() => {
+    const names = new Map<string, string>()
+    for (const row of rows) {
+      for (const sender of row.senderNames) {
+        const key = sender.name.toLowerCase()
+        if (!names.has(key)) names.set(key, sender.name)
+      }
+    }
+    return [
+      { value: 'all', label: 'All senders' },
+      ...Array.from(names, ([value, label]) => ({ value, label })).sort((a, b) =>
+        a.label.localeCompare(b.label),
+      ),
+    ]
+  }, [rows])
   const warmupFilterOptions: FilterOption[] = [
     { value: 'all', label: 'All statuses' },
     { value: 'enabled', label: 'Enabled' },
@@ -297,6 +324,10 @@ export default function DomainManagementPage({
       ),
     [accounts],
   )
+  const healthByDomain = useMemo(
+    () => new Map(healthRows.map((row) => [row.domain, row])),
+    [healthRows],
+  )
 
   const visibleRows = useMemo(() => {
     const filtered = rows.filter((row) => {
@@ -308,12 +339,25 @@ export default function DomainManagementPage({
       )
         return false
       if (warmupFilter !== 'all' && row.warmupState !== warmupFilter) return false
+      if (
+        senderFilter !== 'all' &&
+        !row.senderNames.some(
+          (sender) => sender.name.toLowerCase() === senderFilter,
+        )
+      )
+        return false
       return true
     })
 
     return [...filtered].sort((a, b) => {
       let comparison = 0
       if (sortKey === 'domain') comparison = a.domain.localeCompare(b.domain)
+      if (sortKey === 'senderName') {
+        comparison = a.senderNames
+          .map((sender) => sender.name)
+          .join(', ')
+          .localeCompare(b.senderNames.map((sender) => sender.name).join(', '))
+      }
       if (sortKey === 'ageDays') {
         if (a.ageDays === null && b.ageDays === null) comparison = 0
         else if (a.ageDays === null) comparison = 1
@@ -323,8 +367,20 @@ export default function DomainManagementPage({
       if (sortKey === 'dailyLimit') {
         comparison = (a.dailyLimit ?? a.dailyLimitMin) - (b.dailyLimit ?? b.dailyLimitMin)
       }
-      if (sortKey === 'totalDailyCapacity') {
-        comparison = a.totalDailyCapacity - b.totalDailyCapacity
+      if (sortKey === 'bounceRate') {
+        comparison =
+          (healthByDomain.get(a.domain)?.bounceRate ?? -1) -
+          (healthByDomain.get(b.domain)?.bounceRate ?? -1)
+      }
+      if (sortKey === 'avgWarmupReputation') {
+        comparison =
+          (healthByDomain.get(a.domain)?.avgWarmupReputation ?? -1) -
+          (healthByDomain.get(b.domain)?.avgWarmupReputation ?? -1)
+      }
+      if (sortKey === 'dnsStatus') {
+        comparison =
+          (healthByDomain.get(a.domain)?.missingDns.length ?? 4) -
+          (healthByDomain.get(b.domain)?.missingDns.length ?? 4)
       }
       if (sortKey === 'connected') {
         comparison = a.connectedCount / a.accountCount - b.connectedCount / b.accountCount
@@ -332,7 +388,15 @@ export default function DomainManagementPage({
       if (comparison === 0) comparison = a.domain.localeCompare(b.domain)
       return sortDirection === 'asc' ? comparison : -comparison
     })
-  }, [rows, sortDirection, sortKey, tagFilter, warmupFilter])
+  }, [
+    healthByDomain,
+    rows,
+    senderFilter,
+    sortDirection,
+    sortKey,
+    tagFilter,
+    warmupFilter,
+  ])
 
   const selectedRows = useMemo(
     () => rows.filter((row) => selected.has(row.domain)),
@@ -364,10 +428,6 @@ export default function DomainManagementPage({
   const allVisibleSelected =
     visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.domain))
 
-  const totalCapacity = rows.reduce(
-    (sum, row) => sum + row.totalDailyCapacity,
-    0,
-  )
   const knownDomainAges = rows.flatMap((row) =>
     row.ageDays === null ? [] : [row.ageDays],
   )
@@ -378,11 +438,13 @@ export default function DomainManagementPage({
             knownDomainAges.length,
         )
       : null
-  const filtersActive = tagFilter !== 'all' || warmupFilter !== 'all'
+  const filtersActive =
+    tagFilter !== 'all' || warmupFilter !== 'all' || senderFilter !== 'all'
 
   const clearFilters = () => {
     setTagFilter('all')
     setWarmupFilter('all')
+    setSenderFilter('all')
     setOpenFilter(null)
   }
 
@@ -517,7 +579,6 @@ export default function DomainManagementPage({
           {[
             ['Domains', rows.length.toLocaleString()],
             ['Avg age', formatDomainAge(averageDomainAge)],
-            ['Total cap', totalCapacity.toLocaleString()],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -573,8 +634,26 @@ export default function DomainManagementPage({
             <span className="tnum rounded-md bg-panel-2 px-2 py-0.5 text-[10px] text-muted">
               {visibleRows.length}/{rows.length}
             </span>
+            <span className="rounded-md border border-lime/20 bg-lime/[0.07] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-lime">
+              Health: latest 3D
+            </span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <FilterMenu
+              label="Sender"
+              value={senderFilter}
+              options={senderFilterOptions}
+              open={openFilter === 'sender'}
+              onToggle={() =>
+                setOpenFilter((current) =>
+                  current === 'sender' ? null : 'sender',
+                )
+              }
+              onChange={(value) => {
+                setSenderFilter(value)
+                setOpenFilter(null)
+              }}
+            />
             <FilterMenu
               label="Tags"
               value={tagFilter}
@@ -644,7 +723,7 @@ export default function DomainManagementPage({
           </div>
         ) : (
           <div className="max-h-[520px] overflow-auto overscroll-contain">
-            <table className="w-full min-w-[1080px] border-collapse">
+            <table className="w-full min-w-[1380px] border-collapse">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="border-b border-line text-left">
                   <th className="w-11 px-4 py-2">
@@ -657,9 +736,12 @@ export default function DomainManagementPage({
                     />
                   </th>
                   <SortHeader label="Domain" sortKey="domain" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
+                  <SortHeader label="Sender names" sortKey="senderName" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
-                  <SortHeader label="Total cap" sortKey="totalDailyCapacity" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Bounce rate (3D)" sortKey="bounceRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Avg warmup" sortKey="avgWarmupReputation" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="DNS validation" sortKey="dnsStatus" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
                   <SortHeader label="Connected" sortKey="connected" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Warmup status</th>
@@ -668,6 +750,7 @@ export default function DomainManagementPage({
               <tbody>
                 {visibleRows.map((row) => {
                   const isSelected = selected.has(row.domain)
+                  const health = healthByDomain.get(row.domain)
                   return (
                     <tr
                       key={row.domain}
@@ -687,6 +770,24 @@ export default function DomainManagementPage({
                       <td className="whitespace-nowrap px-2.5 py-2 text-[11px] font-medium text-ink">
                         {row.domain}
                       </td>
+                      <td className="max-w-[300px] px-2.5 py-2 text-[10px] text-muted">
+                        <div className="flex flex-wrap gap-1">
+                          {row.senderNames.map((sender) => (
+                            <span
+                              key={sender.name.toLowerCase()}
+                              className="whitespace-nowrap rounded-md bg-white/[0.045] px-2 py-1"
+                              title={`${sender.inboxCount.toLocaleString()} ${
+                                sender.inboxCount === 1 ? 'inbox' : 'inboxes'
+                              }`}
+                            >
+                              {sender.name}{' '}
+                              <span className="tnum text-faint">
+                                ({sender.inboxCount.toLocaleString()})
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td
                         className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] text-muted"
                         title={formatCreatedDate(row.createdAt)}
@@ -705,8 +806,47 @@ export default function DomainManagementPage({
                           row.dailyLimit.toLocaleString()
                         )}
                       </td>
-                      <td className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] text-muted">
-                        {row.totalDailyCapacity.toLocaleString()}
+                      <td
+                        className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
+                          !health
+                            ? 'text-faint'
+                            : health.bounceRate > 3
+                              ? 'text-critical'
+                              : health.bounceRate > 1
+                                ? 'text-warn'
+                                : 'text-positive'
+                        }`}
+                      >
+                        {health ? `${health.bounceRate.toFixed(2)}%` : '—'}
+                      </td>
+                      <td
+                        className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
+                          health?.avgWarmupReputation == null
+                            ? 'text-faint'
+                            : health.avgWarmupReputation >= 90
+                              ? 'text-positive'
+                              : health.avgWarmupReputation >= 75
+                                ? 'text-warn'
+                                : 'text-critical'
+                        }`}
+                      >
+                        {health?.avgWarmupReputation ?? '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-2.5 py-2 text-[10px]">
+                        {!health ? (
+                          <span className="text-faint">—</span>
+                        ) : health.dnsValidated ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-positive/10 px-2 py-1 font-medium text-positive ring-1 ring-inset ring-positive/25">
+                            ✓ Validated
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center rounded-full bg-critical/10 px-2 py-1 font-medium text-critical ring-1 ring-inset ring-critical/25"
+                            title={`Missing ${health.missingDns.join(', ')}`}
+                          >
+                            Missing {health.missingDns.join(', ')}
+                          </span>
+                        )}
                       </td>
                       <td
                         className="max-w-[240px] truncate px-2.5 py-2 text-[11px] text-muted"

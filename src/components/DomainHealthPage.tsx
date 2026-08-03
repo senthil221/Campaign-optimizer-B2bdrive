@@ -409,7 +409,7 @@ export default function DomainHealthPage({
   onStartDateChange: (value: string) => void
   onEndDateChange: (value: string) => void
   onApply: () => void
-  onPreset: (days: 1 | 3) => void
+  onPreset: (days: 1 | 3 | 7) => void
 }) {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('bounceRate')
@@ -427,12 +427,17 @@ export default function DomainHealthPage({
   const threeDaysAgo = IST_DATE_FORMAT.format(
     new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
   )
+  const sevenDaysAgo = IST_DATE_FORMAT.format(
+    new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+  )
   const activePreset =
     startDate === today && endDate === today
       ? 'today'
       : startDate === threeDaysAgo && endDate === today
         ? '3d'
-        : null
+        : startDate === sevenDaysAgo && endDate === today
+          ? '7d'
+          : null
 
   const visibleRows = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -646,6 +651,18 @@ export default function DomainHealthPage({
                   }`}
                 >
                   3D
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onPreset(7)}
+                  className={`rounded-md px-3 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    activePreset === '7d'
+                      ? 'bg-lime-fill text-[#18200c] shadow-sm'
+                      : 'text-muted hover:bg-panel hover:text-ink'
+                  }`}
+                >
+                  7D
                 </button>
               </div>
             </div>
