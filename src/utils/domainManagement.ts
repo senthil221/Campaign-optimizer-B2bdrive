@@ -8,6 +8,12 @@ export function domainFromEmail(email: string): string {
   return at >= 0 ? normalized.slice(at + 1) : ''
 }
 
+export function isValidDomain(domain: string): boolean {
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+    domain,
+  )
+}
+
 export function buildDomainManagementRows(
   accounts: EmailAccount[],
 ): DomainManagementRow[] {
@@ -15,7 +21,7 @@ export function buildDomainManagementRows(
 
   for (const account of accounts) {
     const domain = domainFromEmail(account.fromEmail)
-    if (!domain) continue
+    if (!isValidDomain(domain)) continue
     const current = grouped.get(domain)
     if (current) current.push(account)
     else grouped.set(domain, [account])
@@ -35,6 +41,15 @@ export function buildDomainManagementRows(
       .filter(Number.isFinite)
     const earliestCreatedTimestamp =
       createdTimestamps.length > 0 ? Math.min(...createdTimestamps) : null
+    const warmupEnabledCount = domainAccounts.filter((account) =>
+      ['ACTIVE', 'ENABLED', 'RUNNING'].includes(account.warmupStatus.toUpperCase()),
+    ).length
+    const warmupState: DomainManagementRow['warmupState'] =
+      warmupEnabledCount === domainAccounts.length
+        ? 'enabled'
+        : warmupEnabledCount === 0
+          ? 'disabled'
+          : 'mixed'
 
     return {
       domain,
@@ -42,6 +57,8 @@ export function buildDomainManagementRows(
       accountCount: domainAccounts.length,
       connectedCount: domainAccounts.filter((account) => account.connected)
         .length,
+      warmupEnabledCount,
+      warmupState,
       createdAt:
         earliestCreatedTimestamp === null
           ? null

@@ -182,13 +182,17 @@ export async function updateDomainSettings(
     }),
   })
   const text = await res.text()
-  let payload: { message?: string; error?: string } = {}
+  let payload: { message?: string; error?: string; success?: boolean } = {}
   try {
-    payload = JSON.parse(text) as { message?: string; error?: string }
+    payload = JSON.parse(text) as {
+      message?: string
+      error?: string
+      success?: boolean
+    }
   } catch {
     // The upstream helper occasionally returns plain text.
   }
-  if (!res.ok) {
+  if (!res.ok || payload.success === false) {
     throw new Error(
       payload.error ||
         payload.message ||

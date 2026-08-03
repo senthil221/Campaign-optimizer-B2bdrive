@@ -126,6 +126,8 @@ export interface DomainManagementRow {
   accounts: EmailAccount[]
   accountCount: number
   connectedCount: number
+  warmupEnabledCount: number
+  warmupState: 'enabled' | 'disabled' | 'mixed'
   createdAt: string | null
   ageDays: number | null
   totalDailyCapacity: number

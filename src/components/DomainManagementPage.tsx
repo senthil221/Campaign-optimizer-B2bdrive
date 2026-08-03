@@ -6,7 +6,11 @@ import type {
   DomainWarmupSettings,
   EmailAccount,
 } from '../types'
-import { buildDomainManagementRows } from '../utils/domainManagement'
+import {
+  buildDomainManagementRows,
+  domainFromEmail,
+  isValidDomain,
+} from '../utils/domainManagement'
 
 interface Props {
   accounts: EmailAccount[]
@@ -16,9 +20,11 @@ interface Props {
 }
 
 const INPUT =
-  'h-9 w-full rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60 disabled:cursor-not-allowed disabled:opacity-50'
+  'h-8 w-full rounded-md border border-line bg-panel-2 px-2.5 text-[11px] text-ink outline-none placeholder:text-faint focus:border-lime/60 disabled:cursor-not-allowed disabled:opacity-50'
 const LABEL =
   'mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted'
+const FILTER =
+  'h-7 w-full min-w-[92px] rounded-md border border-line bg-panel-2 px-2 text-[10px] font-normal normal-case tracking-normal text-muted outline-none focus:border-lime/60 focus:text-ink'
 
 function plural(count: number, word: string): string {
   return `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
@@ -43,27 +49,47 @@ function formatCreatedDate(value: string | null): string {
   }).format(new Date(value))}`
 }
 
+function WarmupBadge({
+  state,
+  enabled,
+  total,
+}: {
+  state: 'enabled' | 'disabled' | 'mixed'
+  enabled: number
+  total: number
+}) {
+  const styles = {
+    enabled: 'border-positive/25 bg-positive/10 text-positive',
+    disabled: 'border-critical/25 bg-critical/10 text-critical',
+    mixed: 'border-warn/25 bg-warn/10 text-warn',
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${styles[state]}`}
+      title={`${enabled}/${total} accounts have warmup enabled`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {state}
+    </span>
+  )
+}
+
 function SettingsCard({
   title,
-  description,
   children,
 }: {
   title: string
-  description: string
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-line bg-panel shadow-panel">
-      <div className="border-b border-line px-5 py-4">
+    <section className="rounded-xl border border-line bg-panel shadow-panel">
+      <div className="border-b border-line px-4 py-3">
         <div className="flex items-center gap-3">
-          <span className="h-[18px] w-[3px] rounded-full bg-lime" />
-          <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
+          <span className="h-[15px] w-[3px] rounded-full bg-lime" />
+          <h3 className="text-[13px] font-semibold text-ink">{title}</h3>
         </div>
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-muted">
-          {description}
-        </p>
       </div>
-      <div className="space-y-3 p-5">{children}</div>
+      <div className="space-y-2.5 p-4">{children}</div>
     </section>
   )
 }
@@ -89,7 +115,7 @@ function ApplyButton({
       type="button"
       onClick={onClick}
       disabled={disabled || busy !== null}
-      className="mt-1 h-9 w-full rounded-lg bg-lime-fill px-4 text-[12px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+      className="mt-1 h-8 w-full rounded-md bg-lime-fill px-3 text-[11px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {busy === action ? 'Updating…' : labels[action]}
     </button>
@@ -103,7 +129,13 @@ export default function DomainManagementPage({
   onUpdate,
 }: Props) {
   const rows = useMemo(() => buildDomainManagementRows(accounts), [accounts])
-  const [search, setSearch] = useState('')
+  const [domainFilter, setDomainFilter] = useState('')
+  const [ageFilter, setAgeFilter] = useState('all')
+  const [limitFilter, setLimitFilter] = useState('all')
+  const [capacityFilter, setCapacityFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState('all')
+  const [connectedFilter, setConnectedFilter] = useState('all')
+  const [warmupFilter, setWarmupFilter] = useState('all')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [busy, setBusy] = useState<DomainSettingsAction | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
@@ -116,6 +148,7 @@ export default function DomainManagementPage({
   const [warmupReplyRate, setWarmupReplyRate] = useState(60)
   const [warmupTag, setWarmupTag] = useState('hey-there')
   const [rampupEnabled, setRampupEnabled] = useState(true)
+  const [serverKnownTags, setServerKnownTags] = useState<string[]>([])
 
   useEffect(() => {
     const domains = new Set(rows.map((row) => row.domain))
@@ -124,15 +157,101 @@ export default function DomainManagementPage({
     )
   }, [rows])
 
+  const knownTags = useMemo(
+    () =>
+      Array.from(new Set(accounts.flatMap((account) => account.tagNames))).sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [accounts],
+  )
+  const dailyLimits = useMemo(
+    () =>
+      Array.from(
+        new Set(rows.flatMap((row) => (row.dailyLimit === null ? [] : [row.dailyLimit]))),
+      ).sort((a, b) => a - b),
+    [rows],
+  )
+  const selectableTags = useMemo(
+    () =>
+      Array.from(new Set([...knownTags, ...serverKnownTags])).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [knownTags, serverKnownTags],
+  )
+  const invalidDomainAccounts = useMemo(
+    () =>
+      accounts.filter(
+        (account) => !isValidDomain(domainFromEmail(account.fromEmail)),
+      ),
+    [accounts],
+  )
+
   const visibleRows = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return rows
-    return rows.filter(
-      (row) =>
-        row.domain.includes(query) ||
-        row.tagNames.some((tag) => tag.toLowerCase().includes(query)),
-    )
-  }, [rows, search])
+    const query = domainFilter.trim().toLowerCase()
+    const minimumCapacity = capacityFilter === '' ? null : Number(capacityFilter)
+    return rows.filter((row) => {
+      if (query && !row.domain.includes(query)) return false
+      if (
+        ageFilter === 'under30' &&
+        (row.ageDays === null || row.ageDays >= 30)
+      )
+        return false
+      if (
+        ageFilter === '30to90' &&
+        (row.ageDays === null || row.ageDays < 30 || row.ageDays >= 90)
+      )
+        return false
+      if (
+        ageFilter === '90to365' &&
+        (row.ageDays === null || row.ageDays < 90 || row.ageDays >= 365)
+      )
+        return false
+      if (ageFilter === 'over365' && (row.ageDays === null || row.ageDays < 365))
+        return false
+      if (ageFilter === 'unknown' && row.ageDays !== null) return false
+      if (limitFilter === 'mixed' && row.dailyLimit !== null) return false
+      if (
+        limitFilter !== 'all' &&
+        limitFilter !== 'mixed' &&
+        row.dailyLimit !== Number(limitFilter)
+      )
+        return false
+      if (
+        minimumCapacity !== null &&
+        Number.isFinite(minimumCapacity) &&
+        row.totalDailyCapacity < minimumCapacity
+      )
+        return false
+      if (tagFilter === 'untagged' && row.tagNames.length > 0) return false
+      if (
+        tagFilter !== 'all' &&
+        tagFilter !== 'untagged' &&
+        !row.tagNames.includes(tagFilter)
+      )
+        return false
+      if (
+        connectedFilter === 'connected' &&
+        row.connectedCount !== row.accountCount
+      )
+        return false
+      if (
+        connectedFilter === 'issues' &&
+        row.connectedCount === row.accountCount
+      )
+        return false
+      if (warmupFilter !== 'all' && row.warmupState !== warmupFilter) return false
+      return true
+    })
+  }, [
+    ageFilter,
+    capacityFilter,
+    connectedFilter,
+    domainFilter,
+    limitFilter,
+    rows,
+    tagFilter,
+    warmupFilter,
+  ])
 
   const selectedRows = useMemo(
     () => rows.filter((row) => selected.has(row.domain)),
@@ -149,7 +268,6 @@ export default function DomainManagementPage({
     (sum, row) => sum + row.totalDailyCapacity,
     0,
   )
-  const uniformDomains = rows.filter((row) => row.dailyLimit !== null).length
   const knownDomainAges = rows.flatMap((row) =>
     row.ageDays === null ? [] : [row.ageDays],
   )
@@ -160,6 +278,24 @@ export default function DomainManagementPage({
             knownDomainAges.length,
         )
       : null
+  const filtersActive =
+    domainFilter !== '' ||
+    ageFilter !== 'all' ||
+    limitFilter !== 'all' ||
+    capacityFilter !== '' ||
+    tagFilter !== 'all' ||
+    connectedFilter !== 'all' ||
+    warmupFilter !== 'all'
+
+  const clearFilters = () => {
+    setDomainFilter('')
+    setAgeFilter('all')
+    setLimitFilter('all')
+    setCapacityFilter('')
+    setTagFilter('all')
+    setConnectedFilter('all')
+    setWarmupFilter('all')
+  }
 
   const toggleDomain = (domain: string) => {
     setSelected((current) => {
@@ -198,9 +334,29 @@ export default function DomainManagementPage({
       })
       setNotice(message)
     } catch (updateError) {
-      setOperationError(
-        updateError instanceof Error ? updateError.message : String(updateError),
-      )
+      const message =
+        updateError instanceof Error ? updateError.message : String(updateError)
+      let displayMessage = message
+      if (action === 'tags') {
+        const available = message.match(/Available tags:\s*([\s\S]*)$/i)?.[1]
+        if (available) {
+          setServerKnownTags((current) =>
+            Array.from(
+              new Set([
+                ...current,
+                ...available
+                  .split(',')
+                  .map((tag) => tag.trim())
+                  .filter(Boolean),
+              ]),
+            ),
+          )
+          displayMessage = message
+            .replace(/\s*Available tags:\s*[\s\S]*$/i, '')
+            .trim()
+        }
+      }
+      setOperationError(displayMessage)
     } finally {
       setBusy(null)
     }
@@ -214,6 +370,12 @@ export default function DomainManagementPage({
         .filter(Boolean),
     ),
   )
+  const knownTagSet = new Set(selectableTags)
+  const invalidTags = parsedTags.filter((tag) => !knownTagSet.has(tag))
+  const tagInputError =
+    tags.trim() && invalidTags.length > 0
+      ? `Unknown Smartlead tag${invalidTags.length === 1 ? '' : 's'}: ${invalidTags.join(', ')}`
+      : null
   const noSelection = selectedRows.length === 0
 
   const outboundSettings: DomainOutboundSettings = {
@@ -231,88 +393,94 @@ export default function DomainManagementPage({
   }
 
   return (
-    <div className="space-y-5">
-      <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="h-[22px] w-[3px] rounded-full bg-lime" />
-              <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-ink">
-                Domain Management
-              </h2>
-            </div>
-            <p className="mt-1.5 pl-6 text-[11px] text-muted">
-              Select domains, then update every inbox in those domains together.
-            </p>
+    <div className="space-y-4">
+      <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+          <div className="mr-auto flex items-center gap-3">
+            <span className="h-[18px] w-[3px] rounded-full bg-lime" />
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
+              Domain Management
+            </h2>
           </div>
-          <div className="rounded-xl border border-lime/20 bg-lime/[0.07] px-4 py-2.5 text-right">
-            <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
-              Current selection
+          {[
+            ['Domains', rows.length.toLocaleString()],
+            ['Avg age', formatDomainAge(averageDomainAge)],
+            ['Total cap', totalCapacity.toLocaleString()],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-lg border border-line bg-panel-2 px-3 py-1.5"
+            >
+              <span className="mr-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-faint">
+                {label}
+              </span>
+              <span className="tnum text-[11px] font-semibold text-ink">{value}</span>
             </div>
-            <div className="tnum mt-0.5 text-[13px] font-semibold text-lime">
-              {plural(selectedRows.length, 'domain')} ·{' '}
-              {plural(selectedAccounts.length, 'account')}
-            </div>
+          ))}
+          <div className="rounded-lg border border-lime/20 bg-lime/[0.07] px-3 py-1.5">
+            <span className="mr-2 text-[8px] font-semibold uppercase tracking-[0.12em] text-muted">
+              Selected
+            </span>
+            <span className="tnum text-[11px] font-semibold text-lime">
+              {plural(selectedRows.length, 'domain')} · {selectedAccounts.length} accounts
+            </span>
           </div>
         </div>
 
         {(error || operationError) && (
-          <div className="border-b border-critical/20 bg-critical/10 px-5 py-3 text-xs text-critical">
+          <div className="border-t border-critical/20 bg-critical/10 px-4 py-2 text-[11px] text-critical">
             <span className="font-semibold">Could not complete the request.</span>{' '}
             {operationError || error}
           </div>
         )}
+        {invalidDomainAccounts.length > 0 && (
+          <div className="border-t border-warn/20 bg-warn/[0.08] px-4 py-2 text-[11px] text-warn">
+            <span className="font-semibold">Invalid domain format:</span>{' '}
+            {invalidDomainAccounts
+              .slice(0, 3)
+              .map((account) => account.fromEmail || `Account ${account.id}`)
+              .join(', ')}
+            {invalidDomainAccounts.length > 3
+              ? ` and ${invalidDomainAccounts.length - 3} more`
+              : ''}
+            . These accounts were excluded.
+          </div>
+        )}
         {notice && (
-          <div className="border-b border-positive/20 bg-positive/10 px-5 py-3 text-xs text-positive">
+          <div className="border-t border-positive/20 bg-positive/10 px-4 py-2 text-[11px] text-positive">
             {notice}
           </div>
         )}
-
-        <div className="flex divide-x divide-line overflow-x-auto">
-          {[
-            ['Domains', rows.length],
-            ['Average domain age', formatDomainAge(averageDomainAge)],
-            ['Total capacity / day', totalCapacity],
-            ['Uniform limits', uniformDomains],
-          ].map(([label, value]) => (
-            <div key={label} className="min-w-[160px] flex-1 px-5 py-4">
-              <div className="text-[9px] font-medium uppercase tracking-[0.12em] text-muted">
-                {label}
-              </div>
-              <div className="tnum mt-1 text-[20px] font-semibold tracking-[-0.02em] text-ink">
-                {typeof value === 'number' ? value.toLocaleString() : value}
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
-      <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+      <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
           <div className="flex items-center gap-3">
-            <span className="h-[18px] w-[3px] rounded-full bg-lime" />
-            <h3 className="text-[14px] font-semibold text-ink">Domains</h3>
-            <span className="tnum text-[11px] text-muted">
+            <span className="h-[15px] w-[3px] rounded-full bg-lime" />
+            <h3 className="text-[13px] font-semibold text-ink">Domains</h3>
+            <span className="tnum rounded-md bg-panel-2 px-2 py-0.5 text-[10px] text-muted">
               {visibleRows.length}/{rows.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="h-7 rounded-md border border-line px-2.5 text-[10px] font-medium text-muted transition hover:text-ink"
+              >
+                Clear filters
+              </button>
+            )}
             {selected.size > 0 && (
               <button
                 type="button"
                 onClick={() => setSelected(new Set())}
-                className="h-8 rounded-lg border border-line px-3 text-[11px] font-medium text-muted transition hover:text-ink"
+                className="h-7 rounded-md border border-line px-2.5 text-[10px] font-medium text-muted transition hover:text-ink"
               >
                 Clear selection
               </button>
             )}
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search domain or tag…"
-              className="h-8 w-56 rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60"
-            />
           </div>
         </div>
 
@@ -326,15 +494,15 @@ export default function DomainManagementPage({
             ))}
           </div>
         ) : visibleRows.length === 0 ? (
-          <div className="px-5 py-16 text-center text-sm text-muted">
-            {search ? 'No domains match your search.' : 'No inbox domains found.'}
+          <div className="px-5 py-14 text-center text-[12px] text-muted">
+            {filtersActive ? 'No domains match the active filters.' : 'No domains found.'}
           </div>
         ) : (
-          <div className="max-h-[430px] overflow-auto">
-            <table className="w-full border-collapse">
+          <div className="max-h-[520px] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[1080px] border-collapse">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="border-b border-line text-left">
-                  <th className="w-12 px-5 py-2.5">
+                  <th className="w-11 px-4 py-2">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
@@ -346,18 +514,115 @@ export default function DomainManagementPage({
                   {[
                     'Domain',
                     'Domain age',
-                    'Domain daily limit',
-                    'Total capacity / day',
+                    'Daily limit',
+                    'Total cap',
                     'Tags',
                     'Connected',
+                    'Warmup status',
                   ].map((label) => (
                     <th
                       key={label}
-                      className="whitespace-nowrap px-3 py-2.5 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80"
+                      className="whitespace-nowrap px-2.5 py-2 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80"
                     >
                       {label}
                     </th>
                   ))}
+                </tr>
+                <tr className="border-b border-line bg-panel/95">
+                  <th className="px-4 pb-2" />
+                  <th className="px-2.5 pb-2">
+                    <input
+                      type="search"
+                      value={domainFilter}
+                      onChange={(event) => setDomainFilter(event.target.value)}
+                      placeholder="Filter domain"
+                      aria-label="Filter by domain"
+                      className={FILTER}
+                    />
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <select
+                      value={ageFilter}
+                      onChange={(event) => setAgeFilter(event.target.value)}
+                      aria-label="Filter by domain age"
+                      className={FILTER}
+                    >
+                      <option value="all">All ages</option>
+                      <option value="under30">Under 30d</option>
+                      <option value="30to90">30–90d</option>
+                      <option value="90to365">3–12mo</option>
+                      <option value="over365">1yr+</option>
+                      <option value="unknown">Unknown</option>
+                    </select>
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <select
+                      value={limitFilter}
+                      onChange={(event) => setLimitFilter(event.target.value)}
+                      aria-label="Filter by daily limit"
+                      className={FILTER}
+                    >
+                      <option value="all">All limits</option>
+                      <option value="mixed">Mixed</option>
+                      {dailyLimits.map((limit) => (
+                        <option key={limit} value={String(limit)}>
+                          {limit}/day
+                        </option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={capacityFilter}
+                      onChange={(event) => setCapacityFilter(event.target.value)}
+                      placeholder="Min cap"
+                      aria-label="Filter by minimum total capacity"
+                      className={FILTER}
+                    />
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <select
+                      value={tagFilter}
+                      onChange={(event) => setTagFilter(event.target.value)}
+                      aria-label="Filter by tag"
+                      className={FILTER}
+                    >
+                      <option value="all">All tags</option>
+                      <option value="untagged">Untagged</option>
+                      {knownTags.map((tag) => (
+                        <option key={tag} value={tag}>
+                          {tag}
+                        </option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <select
+                      value={connectedFilter}
+                      onChange={(event) => setConnectedFilter(event.target.value)}
+                      aria-label="Filter by connection status"
+                      className={FILTER}
+                    >
+                      <option value="all">All</option>
+                      <option value="connected">Connected</option>
+                      <option value="issues">Has issues</option>
+                    </select>
+                  </th>
+                  <th className="px-2.5 pb-2">
+                    <select
+                      value={warmupFilter}
+                      onChange={(event) => setWarmupFilter(event.target.value)}
+                      aria-label="Filter by warmup status"
+                      className={FILTER}
+                    >
+                      <option value="all">All</option>
+                      <option value="enabled">Enabled</option>
+                      <option value="disabled">Disabled</option>
+                      <option value="mixed">Mixed</option>
+                    </select>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -370,7 +635,7 @@ export default function DomainManagementPage({
                         isSelected ? 'bg-lime/[0.055]' : ''
                       }`}
                     >
-                      <td className="px-5 py-2.5">
+                      <td className="px-4 py-2">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -379,16 +644,16 @@ export default function DomainManagementPage({
                           className="h-3.5 w-3.5 accent-lime"
                         />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-[12px] font-medium text-ink">
+                      <td className="whitespace-nowrap px-2.5 py-2 text-[11px] font-medium text-ink">
                         {row.domain}
                       </td>
                       <td
-                        className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] text-muted"
+                        className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] text-muted"
                         title={formatCreatedDate(row.createdAt)}
                       >
                         {formatDomainAge(row.ageDays)}
                       </td>
-                      <td className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] font-semibold text-ink">
+                      <td className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold text-ink">
                         {row.dailyLimit === null ? (
                           <span
                             className="text-warn"
@@ -400,16 +665,16 @@ export default function DomainManagementPage({
                           row.dailyLimit.toLocaleString()
                         )}
                       </td>
-                      <td className="tnum whitespace-nowrap px-3 py-2.5 text-right text-[12px] text-muted">
+                      <td className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] text-muted">
                         {row.totalDailyCapacity.toLocaleString()}
                       </td>
                       <td
-                        className="max-w-[260px] truncate px-3 py-2.5 text-[12px] text-muted"
+                        className="max-w-[240px] truncate px-2.5 py-2 text-[11px] text-muted"
                         title={row.tagNames.join(', ')}
                       >
                         {row.tagNames.length > 0 ? row.tagNames.join(', ') : '—'}
                       </td>
-                      <td className="tnum whitespace-nowrap px-3 py-2.5 text-[12px] text-muted">
+                      <td className="tnum whitespace-nowrap px-2.5 py-2 text-[11px] text-muted">
                         <span
                           className={
                             row.connectedCount === row.accountCount
@@ -420,6 +685,13 @@ export default function DomainManagementPage({
                           {row.connectedCount}/{row.accountCount}
                         </span>
                       </td>
+                      <td className="whitespace-nowrap px-2.5 py-2">
+                        <WarmupBadge
+                          state={row.warmupState}
+                          enabled={row.warmupEnabledCount}
+                          total={row.accountCount}
+                        />
+                      </td>
                     </tr>
                   )
                 })}
@@ -429,35 +701,58 @@ export default function DomainManagementPage({
         )}
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <SettingsCard
-          title="Tag Management"
-          description="Apply existing Smartlead tags to every inbox in the selected domains. Separate multiple tags with commas."
-        >
+      <div className="grid gap-4 lg:grid-cols-3">
+        <SettingsCard title="Tag Management">
           <label>
             <span className={LABEL}>Tags</span>
             <input
               value={tags}
               onChange={(event) => setTags(event.target.value)}
               placeholder="warmup, client-name"
-              className={INPUT}
+              aria-invalid={tagInputError ? true : undefined}
+              className={`${INPUT} ${tagInputError ? 'border-critical/60 focus:border-critical' : ''}`}
             />
           </label>
-          <p className="text-[10px] leading-relaxed text-faint">
-            Tag names must already exist in Smartlead and match exactly.
-          </p>
+          {tagInputError && (
+            <div className="rounded-md border border-critical/20 bg-critical/10 px-2.5 py-1.5 text-[10px] text-critical">
+              {tagInputError}
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className={LABEL.replace('mb-1 ', '')}>Available tags</span>
+            <span className="tnum text-[9px] text-faint">{selectableTags.length}</span>
+          </div>
+          <div className="max-h-16 overflow-auto rounded-md border border-line bg-panel-2 p-1.5">
+            <div className="flex flex-wrap gap-1">
+              {selectableTags.length > 0 ? (
+                selectableTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() =>
+                      setTags(Array.from(new Set([...parsedTags, tag])).join(', '))
+                    }
+                    className="rounded border border-line bg-panel px-1.5 py-0.5 text-[9px] text-muted transition hover:border-lime/30 hover:text-lime"
+                  >
+                    {tag}
+                  </button>
+                ))
+              ) : (
+                <span className="px-1 text-[9px] text-faint">No tags loaded</span>
+              )}
+            </div>
+          </div>
           <ApplyButton
             action="tags"
             busy={busy}
-            disabled={noSelection || parsedTags.length === 0}
+            disabled={
+              noSelection || parsedTags.length === 0 || invalidTags.length > 0
+            }
             onClick={() => void runUpdate('tags', { tags: parsedTags })}
           />
         </SettingsCard>
 
-        <SettingsCard
-          title="Outbound Settings"
-          description="Set the daily sending limit and minimum gap for all selected inboxes. Outbound remains active."
-        >
+        <SettingsCard title="Outbound Settings">
           <div className="grid grid-cols-2 gap-3">
             <label>
               <span className={LABEL}>Max emails / day</span>
@@ -500,10 +795,7 @@ export default function DomainManagementPage({
           />
         </SettingsCard>
 
-        <SettingsCard
-          title="Warmup Settings"
-          description="Bulk configure warmup volume, ramping, reply rate, and identifier while keeping warmup active."
-        >
+        <SettingsCard title="Warmup Settings">
           <div className="grid grid-cols-2 gap-3">
             <label>
               <span className={LABEL}>Max warmup / day</span>
@@ -547,7 +839,7 @@ export default function DomainManagementPage({
               />
             </label>
           </div>
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line bg-panel-2 px-3 py-2.5">
+          <label className="flex cursor-pointer items-center justify-between rounded-md border border-line bg-panel-2 px-2.5 py-2">
             <span className="text-[11px] font-medium text-muted">Enable ramp up</span>
             <input
               type="checkbox"

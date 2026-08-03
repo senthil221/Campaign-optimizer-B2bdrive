@@ -17,6 +17,12 @@ function domainFromEmail(value: unknown): string {
   return at >= 0 ? email.slice(at + 1) : ''
 }
 
+function isValidDomain(domain: string): boolean {
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+    domain,
+  )
+}
+
 function integerInRange(
   value: unknown,
   min: number,
@@ -51,6 +57,12 @@ async function updateDomainSettings(
     : []
   if (domains.length === 0) {
     return res.status(400).json({ error: 'Select at least one domain.' })
+  }
+  const invalidDomains = domains.filter((domain) => !isValidDomain(domain))
+  if (invalidDomains.length > 0) {
+    return res.status(400).json({
+      error: `Invalid domain format: ${invalidDomains.slice(0, 3).join(', ')}`,
+    })
   }
 
   const domainSet = new Set(domains)
