@@ -241,7 +241,7 @@ export default function DomainManagementPage({
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pastedDomains, setPastedDomains] = useState('')
-  const [pasteMode, setPasteMode] = useState<'add' | 'replace'>('add')
+  const [pasteMode, setPasteMode] = useState<'add' | 'remove'>('add')
   const [busy, setBusy] = useState<DomainSettingsAction | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -398,8 +398,11 @@ export default function DomainManagementPage({
   const applyPastedSelection = () => {
     if (pastedDomainResult.matched.length === 0) return
     setSelected((current) => {
-      const next = pasteMode === 'replace' ? new Set<string>() : new Set(current)
-      pastedDomainResult.matched.forEach((domain) => next.add(domain))
+      const next = new Set(current)
+      pastedDomainResult.matched.forEach((domain) => {
+        if (pasteMode === 'remove') next.delete(domain)
+        else next.add(domain)
+      })
       return next
     })
     setPasteOpen(false)
@@ -942,7 +945,7 @@ export default function DomainManagementPage({
                   Paste to Select
                 </h3>
                 <p className="mt-0.5 text-[12px] text-muted">
-                  Paste domains to quickly select them
+                  Paste domains to quickly add or remove them from your selection
                 </p>
               </div>
               <button
@@ -965,7 +968,7 @@ export default function DomainManagementPage({
 
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="inline-flex rounded-lg border border-line bg-panel-2 p-1">
-                  {(['add', 'replace'] as const).map((mode) => (
+                  {(['add', 'remove'] as const).map((mode) => (
                     <button
                       key={mode}
                       type="button"
@@ -1014,7 +1017,8 @@ export default function DomainManagementPage({
                   disabled={pastedDomainResult.matched.length === 0}
                   className="h-10 rounded-lg bg-lime-fill px-5 text-[11px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Select {plural(pastedDomainResult.matched.length, 'domain')}
+                  {pasteMode === 'remove' ? 'Remove' : 'Add'}{' '}
+                  {plural(pastedDomainResult.matched.length, 'domain')}
                 </button>
               </div>
             </div>
