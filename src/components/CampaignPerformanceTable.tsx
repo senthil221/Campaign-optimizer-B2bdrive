@@ -397,6 +397,7 @@ function SequenceBreakdown({
             <th className={`${SH} text-right`}>Replied</th>
             <th className={`${SH} text-right`}>Positive</th>
             <th className={`${SH} text-right`}>Bounced</th>
+            <th className={`${SH} text-right`}>Invalid emails</th>
             <th className={`${SH} text-right`}>Sender bnc.</th>
           </tr>
         </thead>
@@ -435,6 +436,16 @@ function SequenceBreakdown({
                     {pct(ratio(s.bounced, s.sent))}
                   </span>{' '}
                   <span className="text-[10px] font-medium text-faint">({fmt(s.bounced)})</span>
+                </td>
+                <td
+                  className={`${SD} text-right font-semibold ${
+                    s.invalidBounces && s.invalidBounces > 0
+                      ? 'text-warn'
+                      : 'text-faint'
+                  }`}
+                  title="Permanent invalid or unknown recipient addresses. Infrastructure bounces are excluded."
+                >
+                  {s.invalidBounces === null ? '—' : fmt(s.invalidBounces)}
                 </td>
                 <td className={`${SD} text-right ${s.senderBounced > 0 ? 'text-critical' : 'text-faint'}`}>
                   {fmt(s.senderBounced)}

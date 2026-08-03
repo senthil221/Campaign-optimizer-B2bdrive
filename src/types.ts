@@ -380,6 +380,8 @@ export interface SequenceStat {
   replied: number
   positiveReplies: number
   bounced: number
+  /** High-confidence permanent invalid/unknown recipients in this variant. */
+  invalidBounces: number | null
   senderBounced: number
   opened: number
   clicked: number

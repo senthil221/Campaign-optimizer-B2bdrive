@@ -582,6 +582,59 @@ export async function fetchDomainBounceRisks(
     .filter((row): row is DomainBounceRisk => row !== null)
 }
 
+async function fetchSequenceInvalidBounceCounts(
+  jwt: string,
+  campaignId: number,
+): Promise<Map<string, number>> {
+  const params = new URLSearchParams({ mode: 'campaign-list-bounces' })
+  const res = await fetch(`${DOMAIN_HEALTH_URL}?${params}`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(jwt),
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ campaignIds: [campaignId] }),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Invalid-recipient analysis failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(
+      `Invalid-recipient response was not valid JSON: ${preview(text)}`,
+    )
+  }
+
+  const payload = (json ?? {}) as Record<string, unknown>
+  if (payload.truncated === true) {
+    throw new Error(
+      'Invalid-recipient analysis reached its safety limit; counts were withheld to avoid showing incomplete data.',
+    )
+  }
+
+  const counts = new Map<string, number>()
+  const rows = Array.isArray(payload.sequenceCounts)
+    ? payload.sequenceCounts
+    : []
+  for (const value of rows) {
+    const row = (value ?? {}) as Record<string, unknown>
+    if (num(row.campaignId, 0) !== campaignId) continue
+    const sequenceId = num(row.emailCampaignSeqId, 0)
+    const variantId = num(row.seqVariantId, 0)
+    counts.set(
+      `${sequenceId}:${variantId}`,
+      Math.max(0, num(row.count, 0)),
+    )
+  }
+  return counts
+}
+
 // ---------------------------------------------------------------------------
 // Campaign list (ids + names)
 // ---------------------------------------------------------------------------
@@ -972,6 +1025,9 @@ export async function fetchCampaignSequences(
   jwt: string,
   campaignId: number,
 ): Promise<SequenceStat[]> {
+  const invalidCountsPromise = fetchSequenceInvalidBounceCounts(jwt, campaignId).catch(
+    () => null,
+  )
   const res = await fetch(`${CAMPAIGN_SEQUENCES_URL}?id=${campaignId}`, {
     method: 'GET',
     headers: authHeaders(jwt),
@@ -994,6 +1050,7 @@ export async function fetchCampaignSequences(
   }
   const rows = extractArray(json, ['grouped_email_campaign_stats'])
   if (!rows) return []
+  const invalidCounts = await invalidCountsPromise
 
   return rows.map((r) => {
     const o = (r ?? {}) as Record<string, unknown>
@@ -1009,6 +1066,10 @@ export async function fetchCampaignSequences(
       replied: num(o.reply_count, 0),
       positiveReplies: num(o.positive_reply_count, 0),
       bounced: num(o.bounce_count, 0),
+      invalidBounces:
+        invalidCounts?.get(
+          `${num(mapping.id, 0)}:${num(o.seq_variant_id, 0)}`,
+        ) ?? (invalidCounts ? 0 : null),
       senderBounced: num(o.sender_bounce_count, 0),
       opened: num(o.open_count, 0),
       clicked: num(o.click_count, 0),
