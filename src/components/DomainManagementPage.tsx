@@ -20,11 +20,18 @@ interface Props {
 }
 
 const INPUT =
-  'h-8 w-full rounded-md border border-line bg-panel-2 px-2.5 text-[11px] text-ink outline-none placeholder:text-faint focus:border-lime/60 disabled:cursor-not-allowed disabled:opacity-50'
+  'h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60 disabled:cursor-not-allowed disabled:opacity-50'
 const LABEL =
   'mb-1 block text-[9px] font-medium uppercase tracking-[0.12em] text-muted'
-const FILTER =
-  'h-7 w-full min-w-[92px] rounded-md border border-line bg-panel-2 px-2 text-[10px] font-normal normal-case tracking-normal text-muted outline-none focus:border-lime/60 focus:text-ink'
+
+type SortKey = 'domain' | 'ageDays' | 'dailyLimit' | 'totalDailyCapacity' | 'connected'
+type SortDirection = 'asc' | 'desc'
+type OpenFilter = 'tags' | 'warmup' | null
+
+interface FilterOption {
+  value: string
+  label: string
+}
 
 function plural(count: number, word: string): string {
   return `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
@@ -47,6 +54,103 @@ function formatCreatedDate(value: string | null): string {
     dateStyle: 'medium',
     timeZone: 'Asia/Kolkata',
   }).format(new Date(value))}`
+}
+
+function normalizePastedDomain(value: string): string {
+  let domain = value.trim().toLowerCase()
+  if (domain.includes('@')) domain = domain.slice(domain.lastIndexOf('@') + 1)
+  domain = domain.replace(/^https?:\/\//, '').split('/')[0]
+  return domain.replace(/^@/, '').replace(/[.,]+$/, '')
+}
+
+function FilterMenu({
+  label,
+  value,
+  options,
+  open,
+  onToggle,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: FilterOption[]
+  open: boolean
+  onToggle: () => void
+  onChange: (value: string) => void
+}) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? label
+  const active = value !== 'all'
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`flex h-8 min-w-[132px] items-center justify-between gap-3 rounded-lg border px-3 text-[10px] font-medium transition ${
+          active
+            ? 'border-lime/30 bg-lime/[0.08] text-lime'
+            : 'border-line bg-panel-2 text-muted hover:text-ink'
+        }`}
+      >
+        <span className="truncate">{label}: {selectedLabel}</span>
+        <span className={`text-[9px] transition ${open ? 'rotate-180' : ''}`}>⌄</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-40 w-52 overflow-hidden rounded-lg border border-line bg-panel shadow-2xl">
+          <div className="max-h-48 overflow-y-auto overscroll-contain p-1.5">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onChange(option.value)}
+                className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[10px] transition hover:bg-white/[0.05] ${
+                  option.value === value ? 'bg-lime/[0.08] text-lime' : 'text-muted'
+                }`}
+              >
+                <span className="truncate">{option.label}</span>
+                {option.value === value && <span>✓</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  onSort,
+  align = 'left',
+}: {
+  label: string
+  sortKey: SortKey
+  activeKey: SortKey
+  direction: SortDirection
+  onSort: (key: SortKey) => void
+  align?: 'left' | 'right'
+}) {
+  const active = sortKey === activeKey
+  return (
+    <th className={`whitespace-nowrap px-2.5 py-2.5 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-[0.1em] transition hover:text-ink ${
+          active ? 'text-lime' : 'text-muted/80'
+        }`}
+      >
+        {label}
+        <span className="w-2.5 text-center text-[9px]">
+          {active ? (direction === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
+  )
 }
 
 function WarmupBadge({
@@ -82,14 +186,14 @@ function SettingsCard({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-line bg-panel shadow-panel">
-      <div className="border-b border-line px-4 py-3">
+    <section className="flex h-full flex-col rounded-2xl border border-line bg-panel shadow-panel">
+      <div className="border-b border-line px-5 py-4">
         <div className="flex items-center gap-3">
           <span className="h-[15px] w-[3px] rounded-full bg-lime" />
           <h3 className="text-[13px] font-semibold text-ink">{title}</h3>
         </div>
       </div>
-      <div className="space-y-2.5 p-4">{children}</div>
+      <div className="flex flex-1 flex-col space-y-4 p-5">{children}</div>
     </section>
   )
 }
@@ -115,7 +219,7 @@ function ApplyButton({
       type="button"
       onClick={onClick}
       disabled={disabled || busy !== null}
-      className="mt-1 h-8 w-full rounded-md bg-lime-fill px-3 text-[11px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+      className="mt-auto h-10 w-full rounded-lg bg-lime-fill px-3 text-[12px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {busy === action ? 'Updating…' : labels[action]}
     </button>
@@ -129,14 +233,15 @@ export default function DomainManagementPage({
   onUpdate,
 }: Props) {
   const rows = useMemo(() => buildDomainManagementRows(accounts), [accounts])
-  const [domainFilter, setDomainFilter] = useState('')
-  const [ageFilter, setAgeFilter] = useState('all')
-  const [limitFilter, setLimitFilter] = useState('all')
-  const [capacityFilter, setCapacityFilter] = useState('')
   const [tagFilter, setTagFilter] = useState('all')
-  const [connectedFilter, setConnectedFilter] = useState('all')
   const [warmupFilter, setWarmupFilter] = useState('all')
+  const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
+  const [sortKey, setSortKey] = useState<SortKey>('domain')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pastedDomains, setPastedDomains] = useState('')
+  const [pasteMode, setPasteMode] = useState<'add' | 'replace'>('add')
   const [busy, setBusy] = useState<DomainSettingsAction | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -164,13 +269,6 @@ export default function DomainManagementPage({
       ),
     [accounts],
   )
-  const dailyLimits = useMemo(
-    () =>
-      Array.from(
-        new Set(rows.flatMap((row) => (row.dailyLimit === null ? [] : [row.dailyLimit]))),
-      ).sort((a, b) => a - b),
-    [rows],
-  )
   const selectableTags = useMemo(
     () =>
       Array.from(new Set([...knownTags, ...serverKnownTags])).sort((a, b) =>
@@ -178,6 +276,20 @@ export default function DomainManagementPage({
       ),
     [knownTags, serverKnownTags],
   )
+  const tagFilterOptions = useMemo<FilterOption[]>(
+    () => [
+      { value: 'all', label: 'All tags' },
+      { value: 'untagged', label: 'Untagged' },
+      ...knownTags.map((tag) => ({ value: tag, label: tag })),
+    ],
+    [knownTags],
+  )
+  const warmupFilterOptions: FilterOption[] = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'enabled', label: 'Enabled' },
+    { value: 'disabled', label: 'Disabled' },
+    { value: 'mixed', label: 'Mixed' },
+  ]
   const invalidDomainAccounts = useMemo(
     () =>
       accounts.filter(
@@ -187,41 +299,7 @@ export default function DomainManagementPage({
   )
 
   const visibleRows = useMemo(() => {
-    const query = domainFilter.trim().toLowerCase()
-    const minimumCapacity = capacityFilter === '' ? null : Number(capacityFilter)
-    return rows.filter((row) => {
-      if (query && !row.domain.includes(query)) return false
-      if (
-        ageFilter === 'under30' &&
-        (row.ageDays === null || row.ageDays >= 30)
-      )
-        return false
-      if (
-        ageFilter === '30to90' &&
-        (row.ageDays === null || row.ageDays < 30 || row.ageDays >= 90)
-      )
-        return false
-      if (
-        ageFilter === '90to365' &&
-        (row.ageDays === null || row.ageDays < 90 || row.ageDays >= 365)
-      )
-        return false
-      if (ageFilter === 'over365' && (row.ageDays === null || row.ageDays < 365))
-        return false
-      if (ageFilter === 'unknown' && row.ageDays !== null) return false
-      if (limitFilter === 'mixed' && row.dailyLimit !== null) return false
-      if (
-        limitFilter !== 'all' &&
-        limitFilter !== 'mixed' &&
-        row.dailyLimit !== Number(limitFilter)
-      )
-        return false
-      if (
-        minimumCapacity !== null &&
-        Number.isFinite(minimumCapacity) &&
-        row.totalDailyCapacity < minimumCapacity
-      )
-        return false
+    const filtered = rows.filter((row) => {
       if (tagFilter === 'untagged' && row.tagNames.length > 0) return false
       if (
         tagFilter !== 'all' &&
@@ -229,29 +307,32 @@ export default function DomainManagementPage({
         !row.tagNames.includes(tagFilter)
       )
         return false
-      if (
-        connectedFilter === 'connected' &&
-        row.connectedCount !== row.accountCount
-      )
-        return false
-      if (
-        connectedFilter === 'issues' &&
-        row.connectedCount === row.accountCount
-      )
-        return false
       if (warmupFilter !== 'all' && row.warmupState !== warmupFilter) return false
       return true
     })
-  }, [
-    ageFilter,
-    capacityFilter,
-    connectedFilter,
-    domainFilter,
-    limitFilter,
-    rows,
-    tagFilter,
-    warmupFilter,
-  ])
+
+    return [...filtered].sort((a, b) => {
+      let comparison = 0
+      if (sortKey === 'domain') comparison = a.domain.localeCompare(b.domain)
+      if (sortKey === 'ageDays') {
+        if (a.ageDays === null && b.ageDays === null) comparison = 0
+        else if (a.ageDays === null) comparison = 1
+        else if (b.ageDays === null) comparison = -1
+        else comparison = a.ageDays - b.ageDays
+      }
+      if (sortKey === 'dailyLimit') {
+        comparison = (a.dailyLimit ?? a.dailyLimitMin) - (b.dailyLimit ?? b.dailyLimitMin)
+      }
+      if (sortKey === 'totalDailyCapacity') {
+        comparison = a.totalDailyCapacity - b.totalDailyCapacity
+      }
+      if (sortKey === 'connected') {
+        comparison = a.connectedCount / a.accountCount - b.connectedCount / b.accountCount
+      }
+      if (comparison === 0) comparison = a.domain.localeCompare(b.domain)
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [rows, sortDirection, sortKey, tagFilter, warmupFilter])
 
   const selectedRows = useMemo(
     () => rows.filter((row) => selected.has(row.domain)),
@@ -261,6 +342,25 @@ export default function DomainManagementPage({
     () => selectedRows.flatMap((row) => row.accounts),
     [selectedRows],
   )
+  const pastedDomainResult = useMemo(() => {
+    const parsed = Array.from(
+      new Set(
+        pastedDomains
+          .split(/[\s,;]+/)
+          .map(normalizePastedDomain)
+          .filter(Boolean),
+      ),
+    )
+    const loadedDomains = new Set(rows.map((row) => row.domain))
+    const invalid = parsed.filter((domain) => !isValidDomain(domain))
+    const matched = parsed.filter(
+      (domain) => isValidDomain(domain) && loadedDomains.has(domain),
+    )
+    const unmatched = parsed.filter(
+      (domain) => isValidDomain(domain) && !loadedDomains.has(domain),
+    )
+    return { invalid, matched, unmatched }
+  }, [pastedDomains, rows])
   const allVisibleSelected =
     visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.domain))
 
@@ -278,23 +378,32 @@ export default function DomainManagementPage({
             knownDomainAges.length,
         )
       : null
-  const filtersActive =
-    domainFilter !== '' ||
-    ageFilter !== 'all' ||
-    limitFilter !== 'all' ||
-    capacityFilter !== '' ||
-    tagFilter !== 'all' ||
-    connectedFilter !== 'all' ||
-    warmupFilter !== 'all'
+  const filtersActive = tagFilter !== 'all' || warmupFilter !== 'all'
 
   const clearFilters = () => {
-    setDomainFilter('')
-    setAgeFilter('all')
-    setLimitFilter('all')
-    setCapacityFilter('')
     setTagFilter('all')
-    setConnectedFilter('all')
     setWarmupFilter('all')
+    setOpenFilter(null)
+  }
+
+  const sortBy = (nextKey: SortKey) => {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(nextKey)
+    setSortDirection(nextKey === 'domain' ? 'asc' : 'desc')
+  }
+
+  const applyPastedSelection = () => {
+    if (pastedDomainResult.matched.length === 0) return
+    setSelected((current) => {
+      const next = pasteMode === 'replace' ? new Set<string>() : new Set(current)
+      pastedDomainResult.matched.forEach((domain) => next.add(domain))
+      return next
+    })
+    setPasteOpen(false)
+    setPastedDomains('')
   }
 
   const toggleDomain = (domain: string) => {
@@ -462,7 +571,40 @@ export default function DomainManagementPage({
               {visibleRows.length}/{rows.length}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <FilterMenu
+              label="Tags"
+              value={tagFilter}
+              options={tagFilterOptions}
+              open={openFilter === 'tags'}
+              onToggle={() => setOpenFilter((current) => current === 'tags' ? null : 'tags')}
+              onChange={(value) => {
+                setTagFilter(value)
+                setOpenFilter(null)
+              }}
+            />
+            <FilterMenu
+              label="Warmup"
+              value={warmupFilter}
+              options={warmupFilterOptions}
+              open={openFilter === 'warmup'}
+              onToggle={() => setOpenFilter((current) => current === 'warmup' ? null : 'warmup')}
+              onChange={(value) => {
+                setWarmupFilter(value)
+                setOpenFilter(null)
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setPasteOpen(true)
+                setOpenFilter(null)
+              }}
+              className="flex h-8 items-center gap-2 rounded-lg border border-line bg-panel-2 px-3 text-[10px] font-medium text-muted transition hover:border-lime/30 hover:text-ink"
+            >
+              <span className="text-critical">▣</span>
+              Paste to select
+            </button>
             {filtersActive && (
               <button
                 type="button"
@@ -511,118 +653,13 @@ export default function DomainManagementPage({
                       className="h-3.5 w-3.5 accent-lime"
                     />
                   </th>
-                  {[
-                    'Domain',
-                    'Domain age',
-                    'Daily limit',
-                    'Total cap',
-                    'Tags',
-                    'Connected',
-                    'Warmup status',
-                  ].map((label) => (
-                    <th
-                      key={label}
-                      className="whitespace-nowrap px-2.5 py-2 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80"
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-                <tr className="border-b border-line bg-panel/95">
-                  <th className="px-4 pb-2" />
-                  <th className="px-2.5 pb-2">
-                    <input
-                      type="search"
-                      value={domainFilter}
-                      onChange={(event) => setDomainFilter(event.target.value)}
-                      placeholder="Filter domain"
-                      aria-label="Filter by domain"
-                      className={FILTER}
-                    />
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <select
-                      value={ageFilter}
-                      onChange={(event) => setAgeFilter(event.target.value)}
-                      aria-label="Filter by domain age"
-                      className={FILTER}
-                    >
-                      <option value="all">All ages</option>
-                      <option value="under30">Under 30d</option>
-                      <option value="30to90">30–90d</option>
-                      <option value="90to365">3–12mo</option>
-                      <option value="over365">1yr+</option>
-                      <option value="unknown">Unknown</option>
-                    </select>
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <select
-                      value={limitFilter}
-                      onChange={(event) => setLimitFilter(event.target.value)}
-                      aria-label="Filter by daily limit"
-                      className={FILTER}
-                    >
-                      <option value="all">All limits</option>
-                      <option value="mixed">Mixed</option>
-                      {dailyLimits.map((limit) => (
-                        <option key={limit} value={String(limit)}>
-                          {limit}/day
-                        </option>
-                      ))}
-                    </select>
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <input
-                      type="number"
-                      min={0}
-                      value={capacityFilter}
-                      onChange={(event) => setCapacityFilter(event.target.value)}
-                      placeholder="Min cap"
-                      aria-label="Filter by minimum total capacity"
-                      className={FILTER}
-                    />
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <select
-                      value={tagFilter}
-                      onChange={(event) => setTagFilter(event.target.value)}
-                      aria-label="Filter by tag"
-                      className={FILTER}
-                    >
-                      <option value="all">All tags</option>
-                      <option value="untagged">Untagged</option>
-                      {knownTags.map((tag) => (
-                        <option key={tag} value={tag}>
-                          {tag}
-                        </option>
-                      ))}
-                    </select>
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <select
-                      value={connectedFilter}
-                      onChange={(event) => setConnectedFilter(event.target.value)}
-                      aria-label="Filter by connection status"
-                      className={FILTER}
-                    >
-                      <option value="all">All</option>
-                      <option value="connected">Connected</option>
-                      <option value="issues">Has issues</option>
-                    </select>
-                  </th>
-                  <th className="px-2.5 pb-2">
-                    <select
-                      value={warmupFilter}
-                      onChange={(event) => setWarmupFilter(event.target.value)}
-                      aria-label="Filter by warmup status"
-                      className={FILTER}
-                    >
-                      <option value="all">All</option>
-                      <option value="enabled">Enabled</option>
-                      <option value="disabled">Disabled</option>
-                      <option value="mixed">Mixed</option>
-                    </select>
-                  </th>
+                  <SortHeader label="Domain" sortKey="domain" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
+                  <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Total cap" sortKey="totalDailyCapacity" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
+                  <SortHeader label="Connected" sortKey="connected" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
+                  <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Warmup status</th>
                 </tr>
               </thead>
               <tbody>
@@ -701,7 +738,23 @@ export default function DomainManagementPage({
         )}
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel-2/35 shadow-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="h-[18px] w-[3px] rounded-full bg-lime" />
+            <h3 className="text-[15px] font-semibold text-ink">Configure settings</h3>
+          </div>
+          <div className={`rounded-lg border px-3 py-1.5 text-[10px] font-medium ${
+            noSelection
+              ? 'border-line bg-panel-2 text-muted'
+              : 'border-lime/25 bg-lime/[0.08] text-lime'
+          }`}>
+            {noSelection
+              ? 'Select domains to configure'
+              : `${plural(selectedRows.length, 'domain')} · ${plural(selectedAccounts.length, 'account')}`}
+          </div>
+        </div>
+        <div className="grid gap-5 p-5 lg:grid-cols-3">
         <SettingsCard title="Tag Management">
           <label>
             <span className={LABEL}>Tags</span>
@@ -722,8 +775,8 @@ export default function DomainManagementPage({
             <span className={LABEL.replace('mb-1 ', '')}>Available tags</span>
             <span className="tnum text-[9px] text-faint">{selectableTags.length}</span>
           </div>
-          <div className="max-h-16 overflow-auto rounded-md border border-line bg-panel-2 p-1.5">
-            <div className="flex flex-wrap gap-1">
+          <div className="max-h-28 min-h-16 overflow-y-auto overscroll-contain rounded-lg border border-line bg-panel-2 p-2">
+            <div className="flex flex-wrap gap-1.5">
               {selectableTags.length > 0 ? (
                 selectableTags.map((tag) => (
                   <button
@@ -732,7 +785,7 @@ export default function DomainManagementPage({
                     onClick={() =>
                       setTags(Array.from(new Set([...parsedTags, tag])).join(', '))
                     }
-                    className="rounded border border-line bg-panel px-1.5 py-0.5 text-[9px] text-muted transition hover:border-lime/30 hover:text-lime"
+                    className="rounded-md border border-line bg-panel px-2 py-1 text-[10px] text-muted transition hover:border-lime/30 hover:text-lime"
                   >
                     {tag}
                   </button>
@@ -839,8 +892,8 @@ export default function DomainManagementPage({
               />
             </label>
           </div>
-          <label className="flex cursor-pointer items-center justify-between rounded-md border border-line bg-panel-2 px-2.5 py-2">
-            <span className="text-[11px] font-medium text-muted">Enable ramp up</span>
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-line bg-panel-2 px-3 py-2.5">
+            <span className="text-[12px] font-medium text-muted">Enable ramp up</span>
             <input
               type="checkbox"
               checked={rampupEnabled}
@@ -866,7 +919,108 @@ export default function DomainManagementPage({
             }
           />
         </SettingsCard>
-      </div>
+        </div>
+      </section>
+
+      {pasteOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="paste-select-title"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setPasteOpen(false)
+          }}
+        >
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl">
+            <div className="flex items-start gap-4 border-b border-line px-5 py-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-critical/15 bg-critical/10 text-lg text-critical">
+                ▣
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 id="paste-select-title" className="text-[16px] font-semibold text-ink">
+                  Paste to Select
+                </h3>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  Paste domains to quickly select them
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasteOpen(false)}
+                aria-label="Close paste to select"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-xl text-muted transition hover:bg-white/[0.05] hover:text-ink"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <textarea
+                autoFocus
+                value={pastedDomains}
+                onChange={(event) => setPastedDomains(event.target.value)}
+                placeholder={'acme.com\nexample.org\nhello@company.co'}
+                className="min-h-44 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-line bg-panel-2 p-3 font-mono text-[12px] leading-6 text-ink outline-none placeholder:text-faint focus:border-lime/50"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex rounded-lg border border-line bg-panel-2 p-1">
+                  {(['add', 'replace'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setPasteMode(mode)}
+                      className={`rounded-md px-3 py-1.5 text-[10px] font-medium capitalize transition ${
+                        pasteMode === mode ? 'bg-lime/[0.12] text-lime' : 'text-muted hover:text-ink'
+                      }`}
+                    >
+                      {mode} selection
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="text-positive">{pastedDomainResult.matched.length} matched</span>
+                  {pastedDomainResult.unmatched.length > 0 && (
+                    <span className="text-warn">{pastedDomainResult.unmatched.length} not found</span>
+                  )}
+                  {pastedDomainResult.invalid.length > 0 && (
+                    <span className="text-critical">{pastedDomainResult.invalid.length} invalid</span>
+                  )}
+                </div>
+              </div>
+
+              {pastedDomainResult.invalid.length > 0 && (
+                <div className="max-h-20 overflow-y-auto rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-[10px] text-critical">
+                  Invalid domain format: {pastedDomainResult.invalid.join(', ')}
+                </div>
+              )}
+              {pastedDomainResult.unmatched.length > 0 && (
+                <div className="max-h-20 overflow-y-auto rounded-lg border border-warn/20 bg-warn/[0.08] px-3 py-2 text-[10px] text-warn">
+                  Not found in loaded domains: {pastedDomainResult.unmatched.join(', ')}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-line pt-4">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen(false)}
+                  className="h-10 rounded-lg border border-line px-4 text-[11px] font-medium text-muted transition hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={applyPastedSelection}
+                  disabled={pastedDomainResult.matched.length === 0}
+                  className="h-10 rounded-lg bg-lime-fill px-5 text-[11px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Select {plural(pastedDomainResult.matched.length, 'domain')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
