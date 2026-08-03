@@ -421,6 +421,7 @@ export default function DomainHealthPage({
     error: boolean
   } | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
+  const selectionAnchorRef = useRef<string | null>(null)
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
   const now = new Date()
   const today = IST_DATE_FORMAT.format(now)
@@ -561,16 +562,39 @@ export default function DomainHealthPage({
     setSortDirection(key === 'domain' || key === 'client' ? 'asc' : 'desc')
   }
 
-  const toggleDomain = (domain: string) => {
+  const selectDomain = (
+    domain: string,
+    checked: boolean,
+    shiftKey: boolean,
+  ) => {
+    const targetIndex = visibleRows.findIndex((row) => row.domain === domain)
+    const anchorIndex = selectionAnchorRef.current
+      ? visibleRows.findIndex(
+          (row) => row.domain === selectionAnchorRef.current,
+        )
+      : -1
+
     setSelected((current) => {
       const next = new Set(current)
-      if (next.has(domain)) next.delete(domain)
-      else next.add(domain)
+      const range =
+        shiftKey && anchorIndex >= 0 && targetIndex >= 0
+          ? visibleRows.slice(
+              Math.min(anchorIndex, targetIndex),
+              Math.max(anchorIndex, targetIndex) + 1,
+            )
+          : visibleRows.filter((row) => row.domain === domain)
+
+      for (const row of range) {
+        if (checked) next.add(row.domain)
+        else next.delete(row.domain)
+      }
       return next
     })
+    selectionAnchorRef.current = domain
   }
 
   const toggleVisible = () => {
+    selectionAnchorRef.current = null
     setSelected((current) => {
       const next = new Set(current)
       for (const row of visibleRows) {
@@ -791,13 +815,19 @@ export default function DomainHealthPage({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelected(new Set())}
+                  onClick={() => {
+                    selectionAnchorRef.current = null
+                    setSelected(new Set())
+                  }}
                   className="h-8 rounded-lg border border-line px-2.5 text-[10px] font-medium text-muted transition hover:text-ink"
                 >
                   Clear
                 </button>
               </>
             )}
+            <span className="hidden text-[10px] text-faint xl:inline">
+              Shift-click checkboxes to select a range
+            </span>
             <input
               type="search"
               value={search}
@@ -947,8 +977,15 @@ export default function DomainHealthPage({
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => toggleDomain(row.domain)}
+                        onChange={(event) =>
+                          selectDomain(
+                            row.domain,
+                            event.target.checked,
+                            (event.nativeEvent as MouseEvent).shiftKey,
+                          )
+                        }
                         aria-label={`Select ${row.domain}`}
+                        title="Shift-click to select or deselect a range"
                         className="h-3.5 w-3.5 accent-lime"
                       />
                     </td>
