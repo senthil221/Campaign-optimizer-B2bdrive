@@ -22,6 +22,28 @@ const TH =
   'whitespace-nowrap px-3 py-2.5 text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80'
 const TD = 'whitespace-nowrap px-3 py-2 text-[12px] tnum'
 
+async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Fall back for browsers that expose the API but deny direct access.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  if (!copied) throw new Error('Clipboard access is unavailable')
+}
+
 type SortKey =
   | 'domain'
   | 'client'
@@ -393,6 +415,12 @@ export default function DomainHealthPage({
   const [sortKey, setSortKey] = useState<SortKey>('bounceRate')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [openRiskDomain, setOpenRiskDomain] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [copyNotice, setCopyNotice] = useState<{
+    message: string
+    error: boolean
+  } | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
   const now = new Date()
   const today = IST_DATE_FORMAT.format(now)
@@ -464,6 +492,44 @@ export default function DomainHealthPage({
     })
   }, [rows, search, sortDirection, sortKey])
 
+  useEffect(() => {
+    const availableDomains = new Set(rows.map((row) => row.domain))
+    setSelected(
+      (current) =>
+        new Set(
+          Array.from(current).filter((domain) => availableDomains.has(domain)),
+        ),
+    )
+  }, [rows])
+
+  const selectedDomains = useMemo(
+    () =>
+      rows
+        .filter((row) => selected.has(row.domain))
+        .map((row) => row.domain)
+        .sort((a, b) => a.localeCompare(b)),
+    [rows, selected],
+  )
+  const selectedVisibleCount = visibleRows.reduce(
+    (count, row) => count + (selected.has(row.domain) ? 1 : 0),
+    0,
+  )
+  const allVisibleSelected =
+    visibleRows.length > 0 && selectedVisibleCount === visibleRows.length
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate =
+        selectedVisibleCount > 0 && !allVisibleSelected
+    }
+  }, [allVisibleSelected, selectedVisibleCount])
+
+  useEffect(() => {
+    if (!copyNotice) return
+    const timeout = window.setTimeout(() => setCopyNotice(null), 2500)
+    return () => window.clearTimeout(timeout)
+  }, [copyNotice])
+
   const totals = useMemo(() => {
     const sent = rows.reduce((sum, row) => sum + row.sent, 0)
     const replied = rows.reduce((sum, row) => sum + row.replied, 0)
@@ -488,6 +554,45 @@ export default function DomainHealthPage({
     }
     setSortKey(key)
     setSortDirection(key === 'domain' || key === 'client' ? 'asc' : 'desc')
+  }
+
+  const toggleDomain = (domain: string) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(domain)) next.delete(domain)
+      else next.add(domain)
+      return next
+    })
+  }
+
+  const toggleVisible = () => {
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const row of visibleRows) {
+        if (allVisibleSelected) next.delete(row.domain)
+        else next.add(row.domain)
+      }
+      return next
+    })
+  }
+
+  const copyDomains = async (domains: string[]) => {
+    if (domains.length === 0) return
+    try {
+      await copyText(domains.join('\n'))
+      setCopyNotice({
+        message:
+          domains.length === 1
+            ? `Copied ${domains[0]}`
+            : `Copied ${domains.length.toLocaleString()} domains`,
+        error: false,
+      })
+    } catch {
+      setCopyNotice({
+        message: 'Could not copy. Please allow clipboard access and try again.',
+        error: true,
+      })
+    }
   }
 
   const submit = (event: FormEvent) => {
@@ -644,7 +749,38 @@ export default function DomainHealthPage({
                 : `${startDate} → ${endDate}`}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {copyNotice && (
+              <span
+                role="status"
+                className={`text-[10px] font-medium ${
+                  copyNotice.error ? 'text-critical' : 'text-positive'
+                }`}
+              >
+                {copyNotice.message}
+              </span>
+            )}
+            {selectedDomains.length > 0 && (
+              <>
+                <span className="tnum rounded-md bg-lime/[0.08] px-2 py-1 text-[10px] font-medium text-lime">
+                  {selectedDomains.length.toLocaleString()} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void copyDomains(selectedDomains)}
+                  className="h-8 rounded-lg bg-lime-fill px-3 text-[10px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover"
+                >
+                  Copy selected
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="h-8 rounded-lg border border-line px-2.5 text-[10px] font-medium text-muted transition hover:text-ink"
+                >
+                  Clear
+                </button>
+              </>
+            )}
             <input
               type="search"
               value={search}
@@ -678,13 +814,22 @@ export default function DomainHealthPage({
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-line text-left">
+                  <th className="w-11 px-4 py-2.5">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleVisible}
+                      aria-label="Select all visible domains"
+                      className="h-3.5 w-3.5 accent-lime"
+                    />
+                  </th>
                   <SortHeader
                     label="Domain"
                     sortKey="domain"
                     activeKey={sortKey}
                     direction={sortDirection}
                     align="left"
-                    className="pl-5"
                     onSort={sortBy}
                   />
                   <SortHeader
@@ -772,13 +917,37 @@ export default function DomainHealthPage({
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row) => (
-                  <tr
-                    key={row.domain}
-                    className="border-b border-line-soft transition last:border-0 hover:bg-white/[0.03]"
-                  >
-                    <td className={`${TD} pl-5 font-medium text-ink`}>
-                      {row.domain}
+                {visibleRows.map((row) => {
+                  const isSelected = selected.has(row.domain)
+                  return (
+                    <tr
+                      key={row.domain}
+                      className={`border-b border-line-soft transition last:border-0 hover:bg-white/[0.03] ${
+                        isSelected ? 'bg-lime/[0.055]' : ''
+                      }`}
+                    >
+                    <td className="px-4 py-2">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleDomain(row.domain)}
+                        aria-label={`Select ${row.domain}`}
+                        className="h-3.5 w-3.5 accent-lime"
+                      />
+                    </td>
+                    <td className={`${TD} font-medium text-ink`}>
+                      <span className="inline-flex items-center gap-2">
+                        <span>{row.domain}</span>
+                        <button
+                          type="button"
+                          onClick={() => void copyDomains([row.domain])}
+                          aria-label={`Copy ${row.domain}`}
+                          title={`Copy ${row.domain}`}
+                          className="rounded border border-line px-1.5 py-0.5 text-[9px] font-medium text-faint transition hover:border-lime/30 hover:text-lime focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/50"
+                        >
+                          Copy
+                        </button>
+                      </span>
                     </td>
                     <td
                       className={`${TD} max-w-[190px] truncate text-left text-muted`}
@@ -877,8 +1046,9 @@ export default function DomainHealthPage({
                         </span>
                       )}
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
