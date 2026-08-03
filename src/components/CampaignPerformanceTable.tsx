@@ -166,9 +166,8 @@ function GeneralSettingsIndicator({ settings }: { settings: CampaignGeneralSetti
   )
 }
 
-// A metric shown as a percentage of sent, with the raw count as a faint hint.
-// When onClick is given and count > 0, the count becomes a button that opens
-// the inbox for those replies.
+// A metric shown with the rate as the primary value and its raw count in
+// brackets. When onClick is given, the bracketed count opens those replies.
 function RateCell({
   count,
   rate,
@@ -182,7 +181,7 @@ function RateCell({
 }) {
   const color =
     tone === 'critical'
-      ? count > 0
+      ? rate > 3
         ? 'text-critical'
         : 'text-faint'
       : tone === 'positive'
@@ -195,19 +194,19 @@ function RateCell({
   const clickable = onClick && count > 0
   return (
     <td className={`${TD} text-right`}>
+      <span className={`text-[13px] font-semibold ${color}`}>{pct(rate)}</span>{' '}
       {clickable ? (
         <button
           type="button"
           onClick={onClick}
           title="View replies"
-          className={`font-semibold underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime ${color}`}
+          className="text-[10px] font-medium text-faint underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime"
         >
-          {fmt(count)}
+          ({fmt(count)})
         </button>
       ) : (
-        <span className={`font-semibold ${color}`}>{fmt(count)}</span>
-      )}{' '}
-      <span className="text-[11px] text-faint">({pct(rate)})</span>
+        <span className="text-[10px] font-medium text-faint">({fmt(count)})</span>
+      )}
     </td>
   )
 }
@@ -408,28 +407,34 @@ function SequenceBreakdown({
               <tr key={s.id} className="border-b border-line-soft last:border-0">
                 <td className={`${SD} font-medium text-ink`}>{label}</td>
                 <td className={`${SD} text-right text-ink`}>{fmt(s.sent)}</td>
-                <td className={`${SD} text-right text-muted`}>
+                <td className={`${SD} text-right`}>
+                  <span className="text-[13px] font-semibold text-muted">
+                    {pct(ratio(s.replied, s.sent))}
+                  </span>{' '}
                   {s.replied > 0 ? (
                     <button
                       type="button"
                       onClick={() => onOpenInbox(s)}
                       title="View replies for this variant"
-                      className="font-medium text-muted underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime"
+                      className="text-[10px] font-medium text-faint underline decoration-dotted decoration-faint/40 underline-offset-2 transition hover:text-lime hover:decoration-lime"
                     >
-                      {fmt(s.replied)}
+                      ({fmt(s.replied)})
                     </button>
                   ) : (
-                    fmt(s.replied)
-                  )}{' '}
-                  <span className="text-faint">({pct(ratio(s.replied, s.sent))})</span>
+                    <span className="text-[10px] font-medium text-faint">({fmt(s.replied)})</span>
+                  )}
                 </td>
-                <td className={`${SD} text-right ${s.positiveReplies > 0 ? 'text-positive' : 'text-faint'}`}>
-                  {fmt(s.positiveReplies)}{' '}
-                  <span className="opacity-70">({pct(ratio(s.positiveReplies, s.replied))})</span>
+                <td className={`${SD} text-right`}>
+                  <span className={`text-[13px] font-semibold ${s.positiveReplies > 0 ? 'text-positive' : 'text-faint'}`}>
+                    {pct(ratio(s.positiveReplies, s.replied))}
+                  </span>{' '}
+                  <span className="text-[10px] font-medium text-faint">({fmt(s.positiveReplies)})</span>
                 </td>
-                <td className={`${SD} text-right ${s.bounced > 0 ? 'text-critical' : 'text-faint'}`}>
-                  {fmt(s.bounced)}{' '}
-                  <span className="opacity-70">({pct(ratio(s.bounced, s.sent))})</span>
+                <td className={`${SD} text-right`}>
+                  <span className={`text-[13px] font-semibold ${ratio(s.bounced, s.sent) > 3 ? 'text-critical' : 'text-faint'}`}>
+                    {pct(ratio(s.bounced, s.sent))}
+                  </span>{' '}
+                  <span className="text-[10px] font-medium text-faint">({fmt(s.bounced)})</span>
                 </td>
                 <td className={`${SD} text-right ${s.senderBounced > 0 ? 'text-critical' : 'text-faint'}`}>
                   {fmt(s.senderBounced)}
