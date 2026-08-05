@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { handleBulkSync } from '../server/bulk-sync'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'
@@ -357,6 +358,14 @@ async function updateDomainSettings(
 // GET /api/email-accounts?offset=0
 // Proxies one page of in-use email accounts (limit fixed at 100).
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const body = objectValue(req.body)
+  if (
+    req.method === 'POST' &&
+    String(body.mode ?? '') === 'bulk-sync'
+  ) {
+    return handleBulkSync(req, res)
+  }
+
   const jwt =
     process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
   if (!jwt) {
@@ -376,13 +385,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (
       req.method === 'POST' &&
-      String(objectValue(req.body).mode ?? '') === 'create-tag'
+      String(body.mode ?? '') === 'create-tag'
     ) {
       return await createTag(req, res, jwt)
     }
     if (
       req.method === 'POST' &&
-      String(objectValue(req.body).mode ?? '') === 'validate-dns'
+      String(body.mode ?? '') === 'validate-dns'
     ) {
       return await runBulkEmailAccountAction(
         res,
@@ -392,7 +401,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (
       req.method === 'POST' &&
-      String(objectValue(req.body).mode ?? '') === 'bulk-reconnect'
+      String(body.mode ?? '') === 'bulk-reconnect'
     ) {
       return await runBulkEmailAccountAction(
         res,

@@ -42,7 +42,7 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | `POST /api/email-accounts`        | Hypertide's Smartlead bulk settings helper |
 | `GET /api/email-accounts?mode=tags` | Smartlead GraphQL Tag Manager (all paginated tags) |
 | `POST /api/email-accounts` with `mode: create-tag` | Smartlead GraphQL Tag Manager tag creation |
-| `POST /api/bulk-sync` | Preview or execute campaign-tag to email-account-tag sender sync |
+| `POST /api/email-accounts` with `mode: bulk-sync` | Preview or execute campaign-tag to email-account-tag sender sync |
 
 ### Bulk Sync
 

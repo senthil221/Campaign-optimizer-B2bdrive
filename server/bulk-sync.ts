@@ -271,7 +271,7 @@ async function executeTargets(apiKey: string, targets: ValidatedTarget[]) {
   })
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handleBulkSync(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }

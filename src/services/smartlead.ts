@@ -44,7 +44,7 @@ const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
 const TAG_MANAGER_URL = '/api/email-accounts?mode=tags'
-const BULK_SYNC_URL = '/api/bulk-sync'
+const BULK_SYNC_URL = '/api/email-accounts'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -180,6 +180,7 @@ async function runBulkSyncAction<T>(
       method: 'POST',
       headers: authHeaders(''),
       body: JSON.stringify({
+        mode: 'bulk-sync',
         action,
         plan: bulkSyncPlanChunk(plan, start, chunkSize),
       }),
