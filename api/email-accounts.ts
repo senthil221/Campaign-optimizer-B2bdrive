@@ -2,6 +2,37 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'
+const GQL_URL = 'https://fe-gql.smartlead.ai/v1/graphql'
+const TAG_PAGE_LIMIT = 100
+const MAX_TAG_PAGES = 200
+const TAG_COLORS = [
+  '#B1FCFA',
+  '#FCE1B1',
+  '#FCEFB1',
+  '#D7FCB1',
+  '#B1DDFC',
+  '#D6B1FC',
+  '#FCB1D7',
+  '#FCC4B1',
+]
+
+const TAGS_QUERY = `query getPaginatedTags($offset: Int!, $limit: Int!, $where: tags_bool_exp!) {
+  tags(where: $where, offset: $offset, limit: $limit, order_by: {id: desc}) {
+    created_at
+    id
+    name
+    color
+  }
+}`
+
+const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
+  insert_tags_one(object: $object) {
+    created_at
+    id
+    name
+    color
+  }
+}`
 
 type BulkAction = 'tags' | 'outbound' | 'warmup'
 
@@ -9,6 +40,119 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
     ? (value as Record<string, unknown>)
     : {}
+}
+
+interface UpstreamTag {
+  created_at?: unknown
+  id?: unknown
+  name?: unknown
+  color?: unknown
+}
+
+function normalizeTag(value: UpstreamTag) {
+  return {
+    id: Number(value.id) || 0,
+    name: String(value.name ?? '').trim(),
+    color: String(value.color ?? '').trim() || '#B1FCFA',
+    createdAt: String(value.created_at ?? '').trim() || null,
+  }
+}
+
+async function tagGraphqlRequest(
+  jwt: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const upstream = await fetch(GQL_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  const text = await upstream.text()
+  let payload: Record<string, unknown>
+  try {
+    payload = objectValue(JSON.parse(text))
+  } catch {
+    throw new Error(
+      `Smartlead returned an invalid tag response (${upstream.status}).`,
+    )
+  }
+  if (!upstream.ok) {
+    throw new Error(
+      String(payload.error ?? '') ||
+        `Smartlead tag request failed (${upstream.status}).`,
+    )
+  }
+  const errors = Array.isArray(payload.errors) ? payload.errors : []
+  if (errors.length > 0) {
+    const message = errors
+      .map((error) => String(objectValue(error).message ?? ''))
+      .filter(Boolean)
+      .join('; ')
+    throw new Error(message || 'Smartlead GraphQL returned a tag error.')
+  }
+  return objectValue(payload.data)
+}
+
+async function listTags(res: VercelResponse, jwt: string) {
+  const tags: ReturnType<typeof normalizeTag>[] = []
+  const seenIds = new Set<number>()
+
+  for (let page = 0; page < MAX_TAG_PAGES; page++) {
+    const data = await tagGraphqlRequest(jwt, {
+      operationName: 'getPaginatedTags',
+      variables: {
+        offset: page * TAG_PAGE_LIMIT,
+        limit: TAG_PAGE_LIMIT,
+        where: {},
+      },
+      query: TAGS_QUERY,
+    })
+    const rows = Array.isArray(data.tags) ? data.tags : []
+    for (const row of rows) {
+      const tag = normalizeTag(objectValue(row) as UpstreamTag)
+      if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
+      seenIds.add(tag.id)
+      tags.push(tag)
+    }
+    if (rows.length < TAG_PAGE_LIMIT) {
+      res.setHeader('cache-control', 'private, max-age=0, no-store')
+      return res.status(200).json({ tags })
+    }
+  }
+
+  return res.status(502).json({
+    error: `Tag loading stopped after ${MAX_TAG_PAGES * TAG_PAGE_LIMIT} rows.`,
+  })
+}
+
+async function createTag(
+  req: VercelRequest,
+  res: VercelResponse,
+  jwt: string,
+) {
+  const name = String(objectValue(req.body).name ?? '').trim()
+  if (!name || name.length > 100) {
+    return res.status(400).json({
+      error: 'Tag name must be between 1 and 100 characters.',
+    })
+  }
+  const color = TAG_COLORS[Math.floor(Math.random() * TAG_COLORS.length)]
+  const data = await tagGraphqlRequest(jwt, {
+    operationName: 'createTag',
+    variables: { object: { name, color } },
+    query: CREATE_TAG_MUTATION,
+  })
+  const tag = normalizeTag(objectValue(data.insert_tags_one) as UpstreamTag)
+  if (!tag.id || !tag.name) {
+    return res.status(502).json({
+      error: 'Smartlead created the tag but returned an incomplete response.',
+    })
+  }
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  return res.status(201).json({ tag })
 }
 
 function domainFromEmail(value: unknown): string {
@@ -196,6 +340,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({
       error:
         'No Smartlead JWT configured. Set SMARTLEAD_JWT in Vercel → Settings → Environment Variables, or pass a JWT from the UI.',
+    })
+  }
+
+  const mode = Array.isArray(req.query.mode)
+    ? req.query.mode[0]
+    : req.query.mode
+
+  try {
+    if (req.method === 'GET' && mode === 'tags') {
+      return await listTags(res, jwt)
+    }
+    if (
+      req.method === 'POST' &&
+      String(objectValue(req.body).mode ?? '') === 'create-tag'
+    ) {
+      return await createTag(req, res, jwt)
+    }
+  } catch (error) {
+    return res.status(502).json({
+      error: `Tag Manager request failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     })
   }
 

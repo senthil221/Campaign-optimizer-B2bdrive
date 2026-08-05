@@ -40,7 +40,7 @@ const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
-const TAG_MANAGER_URL = '/api/tags'
+const TAG_MANAGER_URL = '/api/email-accounts?mode=tags'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -238,7 +238,7 @@ export async function createSmartleadTag(
   const res = await fetch(TAG_MANAGER_URL, {
     method: 'POST',
     headers: authHeaders(jwt),
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ mode: 'create-tag', name }),
   })
   const text = await res.text()
   let payload: { tag?: SmartleadTag; error?: string } = {}
