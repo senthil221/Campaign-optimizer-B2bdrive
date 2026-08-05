@@ -1,5 +1,8 @@
 import type {
   Campaign,
+  BulkSyncPlan,
+  BulkSyncPreview,
+  BulkSyncResult,
   CampaignGeneralSettings,
   CampaignListEntry,
   CampaignOverview,
@@ -41,6 +44,7 @@ const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
 const TAG_MANAGER_URL = '/api/email-accounts?mode=tags'
+const BULK_SYNC_URL = '/api/bulk-sync'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -153,6 +157,61 @@ export function normalizeEmailAccount(
     tagNames,
     rawAccount: raw,
   }
+}
+
+function bulkSyncPlanChunk(plan: BulkSyncPlan, start: number, size: number): BulkSyncPlan {
+  const campaigns = plan.campaigns.slice(start, start + size)
+  const keys = new Set(campaigns.map((campaign) => campaign.tagKey))
+  return {
+    campaigns,
+    pools: plan.pools.filter((pool) => keys.has(pool.tagKey)),
+  }
+}
+
+async function runBulkSyncAction<T>(
+  action: 'preview' | 'execute',
+  plan: BulkSyncPlan,
+  responseKey: 'previews' | 'results',
+): Promise<T[]> {
+  const output: T[] = []
+  const chunkSize = 25
+  for (let start = 0; start < plan.campaigns.length; start += chunkSize) {
+    const res = await fetch(BULK_SYNC_URL, {
+      method: 'POST',
+      headers: authHeaders(''),
+      body: JSON.stringify({
+        action,
+        plan: bulkSyncPlanChunk(plan, start, chunkSize),
+      }),
+    })
+    const text = await res.text()
+    let payload: Record<string, unknown> = {}
+    try {
+      payload = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      // The detailed response preview below is more useful than a JSON error.
+    }
+    if (!res.ok) {
+      throw new Error(
+        String(payload.error ?? '') ||
+          `Bulk Sync ${action} failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+      )
+    }
+    const rows = payload[responseKey]
+    if (!Array.isArray(rows)) {
+      throw new Error(`Bulk Sync ${action} returned an invalid response.`)
+    }
+    output.push(...(rows as T[]))
+  }
+  return output
+}
+
+export function previewBulkSync(plan: BulkSyncPlan): Promise<BulkSyncPreview[]> {
+  return runBulkSyncAction<BulkSyncPreview>('preview', plan, 'previews')
+}
+
+export function executeBulkSync(plan: BulkSyncPlan): Promise<BulkSyncResult[]> {
+  return runBulkSyncAction<BulkSyncResult>('execute', plan, 'results')
 }
 
 function bulkAccountPayload(account: EmailAccount): RawEmailAccount {

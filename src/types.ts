@@ -294,6 +294,48 @@ export interface Campaign {
   generalSettings: CampaignGeneralSettings | null
 }
 
+/** One active campaign selected for automatic campaign-tag → sender-pool sync. */
+export interface BulkSyncCampaignTarget {
+  campaignId: number
+  campaignName: string
+  tagKey: string
+  tagName: string
+}
+
+/** A deduplicated email-account pool for one normalized Smartlead tag name. */
+export interface BulkSyncTagPool {
+  tagKey: string
+  tagName: string
+  accountIds: number[]
+}
+
+/** Compact request shared by bulk-sync preview and execution. */
+export interface BulkSyncPlan {
+  campaigns: BulkSyncCampaignTarget[]
+  pools: BulkSyncTagPool[]
+}
+
+export interface BulkSyncPreview {
+  campaignId: number
+  campaignName: string
+  tagName: string
+  currentCount: number
+  desiredCount: number
+  toAddCount: number
+  toRemoveCount: number
+  error?: string
+}
+
+export interface BulkSyncResult {
+  campaignId: number
+  campaignName: string
+  tagName: string
+  status: 'synced' | 'unchanged' | 'error'
+  added: number
+  removed: number
+  error?: string
+}
+
 /** Plain-text and open/click tracking toggles from a campaign's General settings tab. */
 export interface CampaignGeneralSettings {
   sendAsPlainText: boolean

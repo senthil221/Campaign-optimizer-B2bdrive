@@ -6,6 +6,8 @@ interface Props {
   emailsPerLead: number
   onEmailsPerLeadChange: (v: number) => void
   onRefresh: () => void
+  onBulkSync: () => void
+  bulkSyncLoading: boolean
   theme: 'dark' | 'light'
   onThemeChange: (theme: 'dark' | 'light') => void
   activePage: AppPage
@@ -28,6 +30,8 @@ export default function Header({
   emailsPerLead,
   onEmailsPerLeadChange,
   onRefresh,
+  onBulkSync,
+  bulkSyncLoading,
   theme,
   onThemeChange,
   activePage,
@@ -137,6 +141,19 @@ export default function Header({
           </div>
 
           {/* Refresh */}
+          {activePage === 'campaigns' && (
+            <button
+              type="button"
+              onClick={onBulkSync}
+              disabled={loading || bulkSyncLoading}
+              className="inline-flex items-center gap-2 rounded-xl border border-lime/35 bg-lime/[0.07] px-3.5 py-2 text-[13px] font-bold text-lime transition hover:border-lime/55 hover:bg-lime/[0.12] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+              title="Match active campaign tags to email-account tags"
+            >
+              <span className={bulkSyncLoading ? 'inline-block animate-spin' : ''}>⇄</span>
+              <span className="hidden sm:inline">Bulk Sync</span>
+            </button>
+          )}
+
           <button
             onClick={onRefresh}
             disabled={loading}

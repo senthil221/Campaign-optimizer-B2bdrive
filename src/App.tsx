@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  BulkSyncPlan,
+  BulkSyncPreview,
+  BulkSyncResult,
   Campaign,
   CampaignTagMap,
   DomainBounceRisk,
@@ -10,10 +13,12 @@ import type {
 import {
   fetchCampaignInbox,
   fetchCampaignSequences,
+  executeBulkSync,
   fetchEmailAccounts,
   fetchDomainBounceRisks,
   fetchDomainHealthMetrics,
   fetchTagSendPerformance,
+  previewBulkSync,
   bulkReconnectEmailAccounts,
   fetchSequenceEditor,
   loadCampaigns,
@@ -31,6 +36,10 @@ import {
   buildTagForecasts,
 } from './utils/campaignCalculations'
 import { buildTagVolumes } from './utils/tagCapacity'
+import {
+  buildBulkSyncSelection,
+  type BulkSyncSelection,
+} from './utils/bulkSync'
 import {
   loadEmailsPerLead,
   loadTagMap,
@@ -51,6 +60,7 @@ import CampaignPerformanceTable, {
 } from './components/CampaignPerformanceTable'
 import DomainHealthPage from './components/DomainHealthPage'
 import DomainManagementPage from './components/DomainManagementPage'
+import BulkSyncModal from './components/BulkSyncModal'
 import { buildDomainHealthRows } from './utils/domainHealth'
 
 // Default: every column visible. Stored prefs are merged over this so a newly
@@ -91,6 +101,20 @@ function getIstDateOffset(daysAgo: number, now = new Date()): string {
   return IST_DATE_FORMAT.format(
     new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000),
   )
+}
+
+function bulkSyncPlanForCampaigns(
+  plan: BulkSyncPlan,
+  campaignIds: Set<number>,
+): BulkSyncPlan {
+  const selectedCampaigns = plan.campaigns.filter((campaign) =>
+    campaignIds.has(campaign.campaignId),
+  )
+  const poolKeys = new Set(selectedCampaigns.map((campaign) => campaign.tagKey))
+  return {
+    campaigns: selectedCampaigns,
+    pools: plan.pools.filter((pool) => poolKeys.has(pool.tagKey)),
+  }
 }
 
 export default function App() {
@@ -141,6 +165,17 @@ export default function App() {
   const [managementError, setManagementError] = useState<string | null>(null)
   const [managementLastUpdated, setManagementLastUpdated] =
     useState<Date | null>(null)
+  const [bulkSyncSelection, setBulkSyncSelection] =
+    useState<BulkSyncSelection | null>(null)
+  const [bulkSyncPreviews, setBulkSyncPreviews] = useState<
+    BulkSyncPreview[] | null
+  >(null)
+  const [bulkSyncResults, setBulkSyncResults] = useState<
+    BulkSyncResult[] | null
+  >(null)
+  const [bulkSyncLoading, setBulkSyncLoading] = useState(false)
+  const [bulkSyncExecuting, setBulkSyncExecuting] = useState(false)
+  const [bulkSyncError, setBulkSyncError] = useState<string | null>(null)
 
   // Latest campaigns, for reverting an optimistic edit without stale closures.
   const campaignsRef = useRef<Campaign[]>([])
@@ -527,6 +562,79 @@ export default function App() {
     [],
   )
 
+  const handleBulkSyncPreview = useCallback(async () => {
+    const selection = buildBulkSyncSelection(campaigns, accounts)
+    setBulkSyncSelection(selection)
+    setBulkSyncPreviews(null)
+    setBulkSyncResults(null)
+    setBulkSyncError(null)
+    if (selection.plan.campaigns.length === 0) {
+      setBulkSyncPreviews([])
+      return
+    }
+
+    setBulkSyncLoading(true)
+    try {
+      setBulkSyncPreviews(await previewBulkSync(selection.plan))
+    } catch (e) {
+      setBulkSyncError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBulkSyncLoading(false)
+    }
+  }, [accounts, campaigns])
+
+  const handleBulkSyncExecute = useCallback(async () => {
+    if (!bulkSyncSelection || !bulkSyncPreviews) return
+    const changedIds = new Set(
+      bulkSyncPreviews
+        .filter(
+          (row) =>
+            !row.error && (row.toAddCount > 0 || row.toRemoveCount > 0),
+        )
+        .map((row) => row.campaignId),
+    )
+    if (changedIds.size === 0) return
+
+    const executionPlan = bulkSyncPlanForCampaigns(
+      bulkSyncSelection.plan,
+      changedIds,
+    )
+    setBulkSyncExecuting(true)
+    setBulkSyncError(null)
+    try {
+      const changedResults = await executeBulkSync(executionPlan)
+      const byCampaign = new Map(
+        changedResults.map((result) => [result.campaignId, result]),
+      )
+      const allResults: BulkSyncResult[] = bulkSyncPreviews
+        .filter((row) => !row.error)
+        .map(
+          (row) =>
+            byCampaign.get(row.campaignId) ?? {
+              campaignId: row.campaignId,
+              campaignName: row.campaignName,
+              tagName: row.tagName,
+              status: 'unchanged',
+              added: 0,
+              removed: 0,
+            },
+        )
+      setBulkSyncResults(allResults)
+    } catch (e) {
+      setBulkSyncError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBulkSyncExecuting(false)
+    }
+  }, [bulkSyncPreviews, bulkSyncSelection])
+
+  const closeBulkSync = useCallback(() => {
+    if (bulkSyncExecuting) return
+    setBulkSyncSelection(null)
+    setBulkSyncPreviews(null)
+    setBulkSyncResults(null)
+    setBulkSyncError(null)
+  }, [bulkSyncExecuting])
+
   return (
     <div className="min-h-full">
       <Header
@@ -553,6 +661,8 @@ export default function App() {
               ? refreshDomainHealth
               : refreshDomainManagement
         }
+        onBulkSync={() => void handleBulkSyncPreview()}
+        bulkSyncLoading={bulkSyncLoading || bulkSyncExecuting}
         theme={theme}
         onThemeChange={setTheme}
         activePage={activePage}
@@ -648,6 +758,19 @@ export default function App() {
           />
         )}
       </main>
+      {bulkSyncSelection && (
+        <BulkSyncModal
+          selection={bulkSyncSelection}
+          previews={bulkSyncPreviews}
+          results={bulkSyncResults}
+          loading={bulkSyncLoading}
+          executing={bulkSyncExecuting}
+          error={bulkSyncError}
+          onPreview={() => void handleBulkSyncPreview()}
+          onConfirm={() => void handleBulkSyncExecute()}
+          onClose={closeBulkSync}
+        />
+      )}
     </div>
   )
 }

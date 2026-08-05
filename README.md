@@ -42,6 +42,20 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | `POST /api/email-accounts`        | Hypertide's Smartlead bulk settings helper |
 | `GET /api/email-accounts?mode=tags` | Smartlead GraphQL Tag Manager (all paginated tags) |
 | `POST /api/email-accounts` with `mode: create-tag` | Smartlead GraphQL Tag Manager tag creation |
+| `POST /api/bulk-sync` | Preview or execute campaign-tag to email-account-tag sender sync |
+
+### Bulk Sync
+
+The **Bulk Sync** button checks every active campaign automatically. When
+exactly one campaign tag matches an email-account tag (case-insensitive), it
+compares the campaign's current sender membership with the connected accounts
+in that tag. The confirmation dialog shows additions and removals before any
+write occurs. Campaigns with no match, multiple matches, or an empty connected
+pool are skipped safely.
+
+Execution re-reads current campaign membership before applying changes, adds
+missing senders first, and then removes senders outside the matched pool. Set
+`SMARTLEAD_API_KEY` server-side to enable these campaign membership calls.
 
 ### Domain management
 
@@ -67,7 +81,7 @@ never returned to or stored in the browser.
 1. Import the repo into Vercel (framework auto-detected as **Vite**, functions auto-detected in `/api`).
 2. **Project → Settings → Environment Variables** add:
    - `SMARTLEAD_JWT` = your Smartlead JWT  *(required)*
-   - `SMARTLEAD_API_KEY` = *(optional)*
+   - `SMARTLEAD_API_KEY` = required for **Bulk Sync**
 3. Deploy. Open the app and click **Fetch accounts / tags** / **Fetch campaigns** — no token in the browser.
 
 > ⚠️ Do **not** prefix these with `VITE_`. `VITE_` env vars are inlined into the public JS bundle
