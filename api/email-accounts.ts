@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { handleBulkSync } from '../server/bulk-sync'
+import { handleBulkSync } from './_bulk-sync'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'

@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+// Underscore-prefixed API files are bundled as helpers, not deployed as routes.
+
 const SMARTLEAD_BASE = 'https://server.smartlead.ai/api/v1'
 const PREVIEW_CONCURRENCY = 3
 const EXECUTE_CONCURRENCY = 2
