@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { DomainBounceRisk, DomainHealthRow } from '../types'
+import { isValidDomain } from '../utils/domainManagement'
 
 const fmt = (value: number) => value.toLocaleString()
 const pct = (value: number) => `${value.toFixed(2)}%`
@@ -42,6 +43,13 @@ async function copyText(value: string): Promise<void> {
   const copied = document.execCommand('copy')
   document.body.removeChild(textarea)
   if (!copied) throw new Error('Clipboard access is unavailable')
+}
+
+function normalizePastedDomain(value: string): string {
+  let domain = value.trim().toLowerCase()
+  if (domain.includes('@')) domain = domain.slice(domain.lastIndexOf('@') + 1)
+  domain = domain.replace(/^https?:\/\//, '').split('/')[0]
+  return domain.replace(/^@/, '').replace(/[.,]+$/, '')
 }
 
 type SortKey =
@@ -416,6 +424,9 @@ export default function DomainHealthPage({
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [openRiskDomain, setOpenRiskDomain] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [pastedDomains, setPastedDomains] = useState('')
+  const [pasteMode, setPasteMode] = useState<'add' | 'remove'>('add')
   const [copyNotice, setCopyNotice] = useState<{
     message: string
     error: boolean
@@ -516,6 +527,26 @@ export default function DomainHealthPage({
         .sort((a, b) => a.localeCompare(b)),
     [rows, selected],
   )
+  const pastedDomainResult = useMemo(() => {
+    const parsed = Array.from(
+      new Set(
+        pastedDomains
+          .split(/[\s,;]+/)
+          .map(normalizePastedDomain)
+          .filter(Boolean),
+      ),
+    )
+    const loadedDomains = new Set(rows.map((row) => row.domain))
+    return {
+      invalid: parsed.filter((domain) => !isValidDomain(domain)),
+      matched: parsed.filter(
+        (domain) => isValidDomain(domain) && loadedDomains.has(domain),
+      ),
+      unmatched: parsed.filter(
+        (domain) => isValidDomain(domain) && !loadedDomains.has(domain),
+      ),
+    }
+  }, [pastedDomains, rows])
   const selectedVisibleCount = visibleRows.reduce(
     (count, row) => count + (selected.has(row.domain) ? 1 : 0),
     0,
@@ -603,6 +634,21 @@ export default function DomainHealthPage({
       }
       return next
     })
+  }
+
+  const applyPastedSelection = () => {
+    if (pastedDomainResult.matched.length === 0) return
+    selectionAnchorRef.current = null
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const domain of pastedDomainResult.matched) {
+        if (pasteMode === 'remove') next.delete(domain)
+        else next.add(domain)
+      }
+      return next
+    })
+    setPasteOpen(false)
+    setPastedDomains('')
   }
 
   const copyDomains = async (domains: string[]) => {
@@ -801,6 +847,14 @@ export default function DomainHealthPage({
                 {copyNotice.message}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setPasteOpen(true)}
+              className="flex h-8 items-center gap-2 rounded-lg border border-line bg-panel-2 px-3 text-[10px] font-medium text-muted transition hover:border-lime/30 hover:text-ink"
+            >
+              <span className="text-critical">▣</span>
+              Paste to select
+            </button>
             {selectedDomains.length > 0 && (
               <>
                 <span className="tnum rounded-md bg-lime/[0.08] px-2 py-1 text-[10px] font-medium text-lime">
@@ -1108,6 +1162,119 @@ export default function DomainHealthPage({
           </div>
         )}
       </section>
+
+      {pasteOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="health-paste-select-title"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setPasteOpen(false)
+          }}
+        >
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl">
+            <div className="flex items-start gap-4 border-b border-line px-5 py-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-critical/15 bg-critical/10 text-lg text-critical">
+                ▣
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3
+                  id="health-paste-select-title"
+                  className="text-[16px] font-semibold text-ink"
+                >
+                  Paste to Select
+                </h3>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  Paste domains to add or remove them from this health-table selection
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasteOpen(false)}
+                aria-label="Close paste to select"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-xl text-muted transition hover:bg-white/[0.05] hover:text-ink"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <textarea
+                autoFocus
+                value={pastedDomains}
+                onChange={(event) => setPastedDomains(event.target.value)}
+                placeholder={'acme.com\nexample.org\nhello@company.co'}
+                className="min-h-44 max-h-64 w-full resize-y overflow-y-auto rounded-xl border border-line bg-panel-2 p-3 font-mono text-[12px] leading-6 text-ink outline-none placeholder:text-faint focus:border-lime/50"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex rounded-lg border border-line bg-panel-2 p-1">
+                  {(['add', 'remove'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setPasteMode(mode)}
+                      className={`rounded-md px-3 py-1.5 text-[10px] font-medium capitalize transition ${
+                        pasteMode === mode
+                          ? 'bg-lime/[0.12] text-lime'
+                          : 'text-muted hover:text-ink'
+                      }`}
+                    >
+                      {mode} selection
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="text-positive">
+                    {pastedDomainResult.matched.length} matched
+                  </span>
+                  {pastedDomainResult.unmatched.length > 0 && (
+                    <span className="text-warn">
+                      {pastedDomainResult.unmatched.length} not found
+                    </span>
+                  )}
+                  {pastedDomainResult.invalid.length > 0 && (
+                    <span className="text-critical">
+                      {pastedDomainResult.invalid.length} invalid
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {pastedDomainResult.invalid.length > 0 && (
+                <div className="max-h-20 overflow-y-auto rounded-lg border border-critical/20 bg-critical/10 px-3 py-2 text-[10px] text-critical">
+                  Invalid domain format: {pastedDomainResult.invalid.join(', ')}
+                </div>
+              )}
+              {pastedDomainResult.unmatched.length > 0 && (
+                <div className="max-h-20 overflow-y-auto rounded-lg border border-warn/20 bg-warn/[0.08] px-3 py-2 text-[10px] text-warn">
+                  Not found in loaded domains: {pastedDomainResult.unmatched.join(', ')}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 border-t border-line pt-4">
+                <button
+                  type="button"
+                  onClick={() => setPasteOpen(false)}
+                  className="h-10 rounded-lg border border-line px-4 text-[11px] font-medium text-muted transition hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={applyPastedSelection}
+                  disabled={pastedDomainResult.matched.length === 0}
+                  className="h-10 rounded-lg bg-lime-fill px-5 text-[11px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {pasteMode === 'remove' ? 'Remove' : 'Add'}{' '}
+                  {fmt(pastedDomainResult.matched.length)} domain
+                  {pastedDomainResult.matched.length === 1 ? '' : 's'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

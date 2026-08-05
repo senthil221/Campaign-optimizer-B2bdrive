@@ -21,6 +21,8 @@ import {
 interface Props {
   accounts: EmailAccount[]
   healthRows: DomainHealthRow[]
+  todaySentByDomain: Map<string, number>
+  todaySentAvailable: boolean
   loading: boolean
   error: string | null
   onUpdate: (request: DomainBulkUpdateRequest) => Promise<string>
@@ -38,6 +40,7 @@ type SortKey =
   | 'senderName'
   | 'ageDays'
   | 'dailyLimit'
+  | 'sentToday'
   | 'bounceRate'
   | 'avgWarmupReputation'
   | 'dnsStatus'
@@ -270,7 +273,8 @@ function ApplyButton({
 }) {
   const labels: Record<DomainSettingsAction, string> = {
     tags: 'Update tags',
-    outbound: 'Update outbound settings',
+    outbound_limit: 'Update max emails',
+    outbound_wait: 'Update min wait',
     warmup: 'Update warmup settings',
   }
   return (
@@ -288,6 +292,8 @@ function ApplyButton({
 export default function DomainManagementPage({
   accounts,
   healthRows,
+  todaySentByDomain,
+  todaySentAvailable,
   loading,
   error,
   onUpdate,
@@ -471,6 +477,11 @@ export default function DomainManagementPage({
       if (sortKey === 'dailyLimit') {
         comparison = (a.dailyLimit ?? a.dailyLimitMin) - (b.dailyLimit ?? b.dailyLimitMin)
       }
+      if (sortKey === 'sentToday') {
+        comparison =
+          (todaySentAvailable ? todaySentByDomain.get(a.domain) ?? -1 : -1) -
+          (todaySentAvailable ? todaySentByDomain.get(b.domain) ?? -1 : -1)
+      }
       if (sortKey === 'bounceRate') {
         comparison =
           (healthByDomain.get(a.domain)?.bounceRate ?? -1) -
@@ -499,6 +510,8 @@ export default function DomainManagementPage({
     sortDirection,
     sortKey,
     tagFilters,
+    todaySentByDomain,
+    todaySentAvailable,
     warmupFilters,
   ])
 
@@ -795,8 +808,11 @@ export default function DomainManagementPage({
       : null
   const noSelection = selectedRows.length === 0
 
-  const outboundSettings: DomainOutboundSettings = {
+  const outboundLimitSettings: DomainOutboundSettings = {
     messagePerDay,
+    status: 'ACTIVE',
+  }
+  const outboundWaitSettings: DomainOutboundSettings = {
     minTimeToWaitInMins,
     status: 'ACTIVE',
   }
@@ -1001,7 +1017,7 @@ export default function DomainManagementPage({
           </div>
         ) : (
           <div className="max-h-[520px] overflow-auto overscroll-contain">
-            <table className="w-full min-w-[1380px] border-collapse">
+            <table className="w-full min-w-[1450px] border-collapse">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="border-b border-line text-left">
                   <th className="w-11 px-4 py-2">
@@ -1018,6 +1034,7 @@ export default function DomainManagementPage({
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
                   <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Sent today" sortKey="sentToday" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Bounce rate (3D)" sortKey="bounceRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Avg warmup" sortKey="avgWarmupReputation" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="DNS validation" sortKey="dnsStatus" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
@@ -1029,6 +1046,9 @@ export default function DomainManagementPage({
                 {visibleRows.map((row) => {
                   const isSelected = selected.has(row.domain)
                   const health = healthByDomain.get(row.domain)
+                  const sentToday = todaySentAvailable
+                    ? todaySentByDomain.get(row.domain) ?? 0
+                    : null
                   return (
                     <tr
                       key={row.domain}
@@ -1096,6 +1116,13 @@ export default function DomainManagementPage({
                         ) : (
                           row.dailyLimit.toLocaleString()
                         )}
+                      </td>
+                      <td
+                        className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
+                          sentToday === null ? 'text-faint' : 'text-positive'
+                        }`}
+                      >
+                        {sentToday === null ? '—' : sentToday.toLocaleString()}
                       </td>
                       <td
                         className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
@@ -1295,45 +1322,67 @@ export default function DomainManagementPage({
 
         <SettingsCard title="Outbound Settings">
           <div className="grid grid-cols-2 gap-3">
-            <label>
-              <span className={LABEL}>Max emails / day</span>
-              <input
-                type="number"
-                min={0}
-                max={1000}
-                value={messagePerDay}
-                onChange={(event) => setMessagePerDay(Number(event.target.value))}
-                className={INPUT}
-              />
-            </label>
-            <label>
-              <span className={LABEL}>Min wait (minutes)</span>
-              <input
-                type="number"
-                min={0}
-                max={1440}
-                value={minTimeToWaitInMins}
-                onChange={(event) =>
-                  setMinTimeToWaitInMins(Number(event.target.value))
+            <div className="flex flex-col gap-3">
+              <label>
+                <span className={LABEL}>Max emails / day</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  value={messagePerDay}
+                  onChange={(event) =>
+                    setMessagePerDay(Number(event.target.value))
+                  }
+                  className={INPUT}
+                />
+              </label>
+              <ApplyButton
+                action="outbound_limit"
+                busy={busy}
+                disabled={
+                  noSelection ||
+                  !Number.isInteger(messagePerDay) ||
+                  messagePerDay < 0 ||
+                  messagePerDay > 1000
                 }
-                className={INPUT}
+                onClick={() =>
+                  void runUpdate('outbound_limit', {
+                    settings: outboundLimitSettings,
+                  })
+                }
               />
-            </label>
+            </div>
+            <div className="flex flex-col gap-3">
+              <label>
+                <span className={LABEL}>Min wait (minutes)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={minTimeToWaitInMins}
+                  onChange={(event) =>
+                    setMinTimeToWaitInMins(Number(event.target.value))
+                  }
+                  className={INPUT}
+                />
+              </label>
+              <ApplyButton
+                action="outbound_wait"
+                busy={busy}
+                disabled={
+                  noSelection ||
+                  !Number.isInteger(minTimeToWaitInMins) ||
+                  minTimeToWaitInMins < 0 ||
+                  minTimeToWaitInMins > 1440
+                }
+                onClick={() =>
+                  void runUpdate('outbound_wait', {
+                    settings: outboundWaitSettings,
+                  })
+                }
+              />
+            </div>
           </div>
-          <ApplyButton
-            action="outbound"
-            busy={busy}
-            disabled={
-              noSelection ||
-              !Number.isInteger(messagePerDay) ||
-              messagePerDay < 0 ||
-              !Number.isInteger(minTimeToWaitInMins) ||
-              minTimeToWaitInMins < 0
-            }
-            onClick={() =>
-              void runUpdate('outbound', { settings: outboundSettings })
-            }
-          />
         </SettingsCard>
 
         <SettingsCard title="Warmup Settings">

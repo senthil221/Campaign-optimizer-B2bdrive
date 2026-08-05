@@ -34,7 +34,11 @@ const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
   }
 }`
 
-type BulkAction = 'tags' | 'outbound' | 'warmup'
+type BulkAction =
+  | 'tags'
+  | 'outbound_limit'
+  | 'outbound_wait'
+  | 'warmup'
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -209,7 +213,9 @@ async function updateDomainSettings(
 ) {
   const body = objectValue(req.body)
   const action = String(body.action ?? '') as BulkAction
-  if (!['tags', 'outbound', 'warmup'].includes(action)) {
+  if (
+    !['tags', 'outbound_limit', 'outbound_wait', 'warmup'].includes(action)
+  ) {
     return res.status(400).json({ error: 'Unknown bulk settings action.' })
   }
 
@@ -267,26 +273,31 @@ async function updateDomainSettings(
       })
     }
     updateData = { tags }
-  } else if (action === 'outbound') {
+  } else if (action === 'outbound_limit') {
     const settings = objectValue(body.settings)
     const messagePerDay = integerInRange(settings.messagePerDay, 0, 1000)
+    if (messagePerDay === null) {
+      return res.status(400).json({
+        error: 'Max emails per day must be a whole number from 0 to 1,000.',
+      })
+    }
+    updateData = {
+      settings: { messagePerDay, status: 'ACTIVE' },
+    }
+  } else if (action === 'outbound_wait') {
+    const settings = objectValue(body.settings)
     const minTimeToWaitInMins = integerInRange(
       settings.minTimeToWaitInMins,
       0,
       1440,
     )
-    if (messagePerDay === null || minTimeToWaitInMins === null) {
+    if (minTimeToWaitInMins === null) {
       return res.status(400).json({
-        error:
-          'Outbound settings require whole-number daily and wait-time limits.',
+        error: 'Minimum wait must be a whole number from 0 to 1,440 minutes.',
       })
     }
     updateData = {
-      settings: {
-        messagePerDay,
-        minTimeToWaitInMins,
-        status: 'ACTIVE',
-      },
+      settings: { minTimeToWaitInMins, status: 'ACTIVE' },
     }
   } else {
     const settings = objectValue(body.settings)
@@ -321,7 +332,7 @@ async function updateDomainSettings(
   const endpoint =
     action === 'tags'
       ? 'update_tags'
-      : action === 'outbound'
+      : action === 'outbound_limit' || action === 'outbound_wait'
         ? 'update_outbound'
         : 'update_warmup'
 

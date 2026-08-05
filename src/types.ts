@@ -147,15 +147,19 @@ export interface DomainManagementRow {
   tagNames: string[]
 }
 
-export type DomainSettingsAction = 'tags' | 'outbound' | 'warmup'
+export type DomainSettingsAction =
+  | 'tags'
+  | 'outbound_limit'
+  | 'outbound_wait'
+  | 'warmup'
 
 export interface DomainTagSettings {
   tags: string[]
 }
 
 export interface DomainOutboundSettings {
-  messagePerDay: number
-  minTimeToWaitInMins: number
+  messagePerDay?: number
+  minTimeToWaitInMins?: number
   status: 'ACTIVE'
 }
 
@@ -231,6 +235,8 @@ export interface TagVolume {
   tagName: string
   /** Total inboxes with this tag (in-use + idle). */
   accountCount: number
+  /** Distinct sender domains represented by the accounts carrying this tag. */
+  domainCount: number
   /** Sending capacity of inboxes assigned to campaigns. */
   totalDailyVolume: number
   usedToday: number

@@ -159,8 +159,13 @@ export default function App() {
   const [managementDomainMetrics, setManagementDomainMetrics] = useState<
     DomainHealthMetric[]
   >([])
+  const [managementTodayMetrics, setManagementTodayMetrics] = useState<
+    DomainHealthMetric[]
+  >([])
   const [managementHealthLoaded, setManagementHealthLoaded] = useState(false)
   const [managementMetricsAvailable, setManagementMetricsAvailable] =
+    useState(false)
+  const [managementTodayMetricsAvailable, setManagementTodayMetricsAvailable] =
     useState(false)
   const [managementError, setManagementError] = useState<string | null>(null)
   const [managementLastUpdated, setManagementLastUpdated] =
@@ -324,10 +329,12 @@ export default function App() {
     const now = new Date()
     const startDate = getIstDateOffset(2, now)
     const endDate = getIstDateOffset(0, now)
-    const [accountsResult, metricsResult] = await Promise.allSettled([
-      fetchEmailAccounts(''),
-      fetchDomainHealthMetrics('', startDate, endDate),
-    ])
+    const [accountsResult, metricsResult, todayMetricsResult] =
+      await Promise.allSettled([
+        fetchEmailAccounts(''),
+        fetchDomainHealthMetrics('', startDate, endDate),
+        fetchDomainHealthMetrics('', endDate, endDate),
+      ])
     const failures: string[] = []
     if (accountsResult.status === 'fulfilled') {
       setAccounts(accountsResult.value)
@@ -342,6 +349,15 @@ export default function App() {
     } else {
       failures.push(
         `Latest 3-day health: ${metricsResult.reason?.message ?? metricsResult.reason}`,
+      )
+    }
+    if (todayMetricsResult.status === 'fulfilled') {
+      setManagementTodayMetrics(todayMetricsResult.value)
+      setManagementTodayMetricsAvailable(true)
+    } else {
+      setManagementTodayMetricsAvailable(false)
+      failures.push(
+        `Today's sent count: ${todayMetricsResult.reason?.message ?? todayMetricsResult.reason}`,
       )
     }
     setManagementError(failures.length > 0 ? failures.join('  •  ') : null)
@@ -472,6 +488,13 @@ export default function App() {
         ? buildDomainHealthRows(managementDomainMetrics, accounts)
         : [],
     [accounts, managementDomainMetrics, managementMetricsAvailable],
+  )
+  const managementTodaySentByDomain = useMemo(
+    () =>
+      new Map(
+        managementTodayMetrics.map((metric) => [metric.domain, metric.sent]),
+      ),
+    [managementTodayMetrics],
   )
 
   const kpis = useMemo(() => {
@@ -750,6 +773,8 @@ export default function App() {
           <DomainManagementPage
             accounts={accounts}
             healthRows={managementHealthRows}
+            todaySentByDomain={managementTodaySentByDomain}
+            todaySentAvailable={managementTodayMetricsAvailable}
             loading={loading || managementLoading}
             error={managementError}
             onUpdate={handleDomainSettingsUpdate}

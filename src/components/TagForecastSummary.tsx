@@ -16,8 +16,8 @@ export const TAG_COLUMNS = [
   { id: 'demand', label: 'Demand' },
   { id: 'daysLeft', label: 'Days left' },
   { id: 'status', label: 'Status' },
-  { id: 'accts', label: 'Accts' },
-  { id: 'sentToday', label: 'Sent today' },
+  { id: 'accts', label: 'Domains' },
+  { id: 'sentToday', label: 'Sent avg' },
   { id: 'monthlyProspects', label: 'Monthly prospects' },
   { id: 'unused', label: 'Idle inboxes' },
   { id: 'avgRep', label: 'Avg rep' },
@@ -119,14 +119,19 @@ export default function TagForecastSummary({
                 {show('daysLeft') && <th className={`${TH} text-right`}>Days left</th>}
                 {show('status') && <th className={`${TH} pl-4 text-left`}>Status</th>}
                 {show('accts') && (
-                  <th className={`${TH} border-l border-line text-right`}>Accts</th>
+                  <th
+                    className={`${TH} border-l border-line text-right`}
+                    title="Distinct sender domains represented by this email tag"
+                  >
+                    Domains
+                  </th>
                 )}
                 {show('sentToday') && (
                   <th
                     className={`${TH} text-right`}
-                    title={`Emails sent during Smartlead reporting day ${reportingDate}; refreshed with the dashboard`}
+                    title={`Average emails sent per tagged account during Smartlead reporting day ${reportingDate}`}
                   >
-                    Sent today
+                    Sent avg
                   </th>
                 )}
                 {show('monthlyProspects') && (
@@ -152,6 +157,10 @@ export default function TagForecastSummary({
                 const liveSent =
                   sentByTag[`id:${t.tagId}`] ??
                   sentByTag[`name:${t.tagName.toLowerCase()}`]
+                const sentAverage =
+                  liveSent === undefined || t.accountCount <= 0
+                    ? undefined
+                    : liveSent / t.accountCount
                 return (
                   <tr
                     key={t.tagName}
@@ -223,16 +232,26 @@ export default function TagForecastSummary({
                     )}
                     {show('accts') && (
                       <td className={`${TD} border-l border-line text-right text-muted`}>
-                        {t.accountCount}
+                        {fmt(t.domainCount)}
                       </td>
                     )}
                     {show('sentToday') && (
                       <td
                         className={`${TD} text-right font-semibold ${
-                          liveSent === undefined ? 'text-faint' : 'text-positive'
+                          sentAverage === undefined ? 'text-faint' : 'text-positive'
                         }`}
+                        title={
+                          liveSent === undefined
+                            ? undefined
+                            : `${fmt(liveSent)} sent ÷ ${fmt(t.accountCount)} accounts`
+                        }
                       >
-                        {liveSent === undefined ? '—' : fmt(liveSent)}
+                        {sentAverage === undefined
+                          ? '—'
+                          : sentAverage.toLocaleString(undefined, {
+                              minimumFractionDigits: 1,
+                              maximumFractionDigits: 1,
+                            })}
                       </td>
                     )}
                     {show('monthlyProspects') && (

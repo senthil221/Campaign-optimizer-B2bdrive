@@ -14,6 +14,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     tagId: number | null
     tagName: string
     accountCount: number
+    domains: Set<string>
     totalDailyVolume: number
     usedToday: number
     disconnects: number
@@ -30,6 +31,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
         tagId,
         tagName,
         accountCount: 0,
+        domains: new Set<string>(),
         totalDailyVolume: 0,
         usedToday: 0,
         disconnects: 0,
@@ -54,6 +56,10 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
     for (const { id, name } of pairs) {
       const entry = ensure(id, name)
       entry.accountCount += 1
+      const at = account.fromEmail.lastIndexOf('@')
+      const domain =
+        at >= 0 ? account.fromEmail.slice(at + 1).trim().toLowerCase() : ''
+      if (domain) entry.domains.add(domain)
 
       // Disconnected mailboxes: count toward total + disconnects, no volume.
       if (!account.connected) {
@@ -77,6 +83,7 @@ export function buildTagVolumes(accounts: EmailAccount[]): TagVolume[] {
       tagId: e.tagId,
       tagName: e.tagName,
       accountCount: e.accountCount,
+      domainCount: e.domains.size,
       totalDailyVolume: e.totalDailyVolume,
       usedToday: e.usedToday,
       remainingToday: e.totalDailyVolume - e.usedToday,
