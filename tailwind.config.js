@@ -4,10 +4,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        display: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        // Numbers reuse PP Neue Montreal with tabular figures (see .tnum).
-        mono: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // Numbers reuse Inter with tabular figures (see .tnum).
+        mono: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
         white: 'rgb(var(--color-overlay) / <alpha-value>)',

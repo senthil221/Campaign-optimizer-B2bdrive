@@ -3,58 +3,10 @@
 @tailwind utilities;
 
 @font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-thin.woff') format('woff');
+  font-family: Inter;
+  src: url('/fonts/inter-variable.ttf') format('truetype-variations');
   font-style: normal;
-  font-weight: 100;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-book.woff') format('woff');
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-medium.woff') format('woff');
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-medium.woff') format('woff');
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-bold.woff') format('woff');
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-italic.woff') format('woff');
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'PP Neue Montreal';
-  src: url('/fonts/ppneuemontreal-semibolditalic.woff') format('woff');
-  font-style: italic;
-  font-weight: 600;
+  font-weight: 100 900;
   font-display: swap;
 }
 
@@ -118,7 +70,8 @@ body {
   margin: 0;
   color: rgb(var(--color-ink));
   background-color: rgb(var(--color-base));
-  font-family: 'PP Neue Montreal', ui-sans-serif, system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-optical-sizing: auto;
   font-feature-settings: 'ss01' 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
