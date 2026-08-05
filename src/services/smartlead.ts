@@ -256,6 +256,51 @@ export async function createSmartleadTag(
   return payload.tag
 }
 
+async function runBulkEmailAccountAction(
+  jwt: string,
+  mode: 'validate-dns' | 'bulk-reconnect',
+  fallbackMessage: string,
+): Promise<string> {
+  const res = await fetch(DOMAIN_SETTINGS_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ mode }),
+  })
+  const text = await res.text()
+  let payload: {
+    message?: string
+    error?: string
+    success?: boolean
+  } = {}
+  let parsedJson = false
+  try {
+    payload = JSON.parse(text) as typeof payload
+    parsedJson = true
+  } catch {
+    // The upstream endpoint may return plain text.
+  }
+  if (!res.ok || payload.success === false) {
+    throw new Error(
+      payload.error ||
+        payload.message ||
+        `${fallbackMessage} failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  return (
+    payload.message ||
+    (!parsedJson ? text.trim() : '') ||
+    `${fallbackMessage} started.`
+  )
+}
+
+export function validateDomainDns(jwt: string): Promise<string> {
+  return runBulkEmailAccountAction(jwt, 'validate-dns', 'DNS validation')
+}
+
+export function bulkReconnectEmailAccounts(jwt: string): Promise<string> {
+  return runBulkEmailAccountAction(jwt, 'bulk-reconnect', 'Bulk reconnect')
+}
+
 /**
  * Pull tag names off a raw campaign-list row, tolerating the shapes Smartlead
  * may use: arrays of strings, {name}, {tag_name}, {label}, or {tag:{name}},

@@ -24,6 +24,8 @@ interface Props {
   loading: boolean
   error: string | null
   onUpdate: (request: DomainBulkUpdateRequest) => Promise<string>
+  onValidateDns: () => Promise<string>
+  onBulkReconnect: () => Promise<string>
 }
 
 const INPUT =
@@ -289,6 +291,8 @@ export default function DomainManagementPage({
   loading,
   error,
   onUpdate,
+  onValidateDns,
+  onBulkReconnect,
 }: Props) {
   const rows = useMemo(() => buildDomainManagementRows(accounts), [accounts])
   const [tagFilters, setTagFilters] = useState<Set<string>>(() => new Set())
@@ -322,7 +326,10 @@ export default function DomainManagementPage({
   const [tagManagerError, setTagManagerError] = useState<string | null>(null)
   const [newTagName, setNewTagName] = useState('')
   const [creatingTag, setCreatingTag] = useState(false)
+  const [dnsValidating, setDnsValidating] = useState(false)
+  const [bulkReconnecting, setBulkReconnecting] = useState(false)
   const tagFetchStartedRef = useRef(false)
+  const selectionAnchorRef = useRef<string | null>(null)
 
   useEffect(() => {
     const domains = new Set(rows.map((row) => row.domain))
@@ -350,6 +357,12 @@ export default function DomainManagementPage({
     tagFetchStartedRef.current = true
     void loadTagManagerTags()
   }, [loadTagManagerTags])
+
+  useEffect(() => {
+    if (!notice) return
+    const timeout = window.setTimeout(() => setNotice(null), 2000)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
 
   const knownTags = useMemo(
     () =>
@@ -550,6 +563,7 @@ export default function DomainManagementPage({
 
   const applyPastedSelection = () => {
     if (pastedDomainResult.matched.length === 0) return
+    selectionAnchorRef.current = null
     setSelected((current) => {
       const next = new Set(current)
       pastedDomainResult.matched.forEach((domain) => {
@@ -562,16 +576,38 @@ export default function DomainManagementPage({
     setPastedDomains('')
   }
 
-  const toggleDomain = (domain: string) => {
+  const selectDomain = (
+    domain: string,
+    checked: boolean,
+    shiftKey: boolean,
+  ) => {
+    const targetIndex = visibleRows.findIndex((row) => row.domain === domain)
+    const anchorIndex = selectionAnchorRef.current
+      ? visibleRows.findIndex(
+          (row) => row.domain === selectionAnchorRef.current,
+        )
+      : -1
+
     setSelected((current) => {
       const next = new Set(current)
-      if (next.has(domain)) next.delete(domain)
-      else next.add(domain)
+      const range =
+        shiftKey && anchorIndex >= 0 && targetIndex >= 0
+          ? visibleRows.slice(
+              Math.min(anchorIndex, targetIndex),
+              Math.max(anchorIndex, targetIndex) + 1,
+            )
+          : visibleRows.filter((row) => row.domain === domain)
+      for (const row of range) {
+        if (checked) next.add(row.domain)
+        else next.delete(row.domain)
+      }
       return next
     })
+    selectionAnchorRef.current = domain
   }
 
   const toggleVisible = () => {
+    selectionAnchorRef.current = null
     setSelected((current) => {
       const next = new Set(current)
       for (const row of visibleRows) {
@@ -583,6 +619,7 @@ export default function DomainManagementPage({
   }
 
   const resetAfterSuccessfulUpdate = () => {
+    selectionAnchorRef.current = null
     setSelected(new Set())
     clearFilters()
     setPasteOpen(false)
@@ -641,6 +678,42 @@ export default function DomainManagementPage({
       setOperationError(displayMessage)
     } finally {
       setBusy(null)
+    }
+  }
+
+  const runDnsValidation = async () => {
+    if (dnsValidating) return
+    setDnsValidating(true)
+    setOperationError(null)
+    setNotice(null)
+    try {
+      setNotice(await onValidateDns())
+    } catch (validationError) {
+      setOperationError(
+        validationError instanceof Error
+          ? validationError.message
+          : String(validationError),
+      )
+    } finally {
+      setDnsValidating(false)
+    }
+  }
+
+  const runBulkReconnect = async () => {
+    if (bulkReconnecting) return
+    setBulkReconnecting(true)
+    setOperationError(null)
+    setNotice(null)
+    try {
+      setNotice(await onBulkReconnect())
+    } catch (reconnectError) {
+      setOperationError(
+        reconnectError instanceof Error
+          ? reconnectError.message
+          : String(reconnectError),
+      )
+    } finally {
+      setBulkReconnecting(false)
     }
   }
 
@@ -738,6 +811,20 @@ export default function DomainManagementPage({
 
   return (
     <div className="space-y-4">
+      {notice && (
+        <div
+          role="status"
+          className="fixed bottom-5 right-5 z-[110] flex max-w-[min(420px,calc(100vw-40px))] items-center gap-2 rounded-xl border border-positive/25 bg-panel px-4 py-3 text-[11px] font-medium text-positive shadow-2xl shadow-black/40"
+        >
+          <span
+            aria-hidden="true"
+            className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-positive/15"
+          >
+            ✓
+          </span>
+          <span>{notice}</span>
+        </div>
+      )}
       <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           <div className="mr-auto flex items-center gap-3">
@@ -746,6 +833,22 @@ export default function DomainManagementPage({
               Domain Management
             </h2>
           </div>
+          <button
+            type="button"
+            onClick={() => void runDnsValidation()}
+            disabled={dnsValidating || bulkReconnecting || loading}
+            className="h-8 rounded-lg border border-lime/30 bg-lime/[0.08] px-3 text-[10px] font-semibold text-lime transition hover:bg-lime/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {dnsValidating ? 'Validating DNS…' : 'Validate DNS'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulkReconnect()}
+            disabled={bulkReconnecting || dnsValidating || loading}
+            className="h-8 rounded-lg border border-line bg-panel-2 px-3 text-[10px] font-semibold text-muted transition hover:border-lime/30 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkReconnecting ? 'Reconnecting…' : 'Bulk Reconnect'}
+          </button>
           {[
             ['Domains', rows.length.toLocaleString()],
             ['Avg age', formatDomainAge(averageDomainAge)],
@@ -789,11 +892,6 @@ export default function DomainManagementPage({
             . These accounts were excluded.
           </div>
         )}
-        {notice && (
-          <div className="border-t border-positive/20 bg-positive/10 px-4 py-2 text-[11px] text-positive">
-            {notice}
-          </div>
-        )}
       </section>
 
       <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
@@ -809,6 +907,9 @@ export default function DomainManagementPage({
             </span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="hidden text-[10px] text-faint 2xl:inline">
+              Shift-click checkboxes to select a range
+            </span>
             <FilterMenu
               label="Sender"
               values={senderFilters}
@@ -873,7 +974,10 @@ export default function DomainManagementPage({
             {selected.size > 0 && (
               <button
                 type="button"
-                onClick={() => setSelected(new Set())}
+                onClick={() => {
+                  selectionAnchorRef.current = null
+                  setSelected(new Set())
+                }}
                 className="h-7 rounded-md border border-line px-2.5 text-[10px] font-medium text-muted transition hover:text-ink"
               >
                 Clear selection
@@ -911,12 +1015,12 @@ export default function DomainManagementPage({
                   </th>
                   <SortHeader label="Domain" sortKey="domain" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Sender names" sortKey="senderName" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
+                  <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
                   <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Bounce rate (3D)" sortKey="bounceRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Avg warmup" sortKey="avgWarmupReputation" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="DNS validation" sortKey="dnsStatus" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
-                  <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
                   <SortHeader label="Connected" sortKey="connected" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Warmup status</th>
                 </tr>
@@ -936,8 +1040,15 @@ export default function DomainManagementPage({
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleDomain(row.domain)}
+                          onChange={(event) =>
+                            selectDomain(
+                              row.domain,
+                              event.target.checked,
+                              (event.nativeEvent as MouseEvent).shiftKey,
+                            )
+                          }
                           aria-label={`Select ${row.domain}`}
+                          title="Shift-click to select or deselect a range"
                           className="h-3.5 w-3.5 accent-lime"
                         />
                       </td>
@@ -961,6 +1072,12 @@ export default function DomainManagementPage({
                             </span>
                           ))}
                         </div>
+                      </td>
+                      <td
+                        className="max-w-[240px] truncate px-2.5 py-2 text-[11px] text-muted"
+                        title={row.tagNames.join(', ')}
+                      >
+                        {row.tagNames.length > 0 ? row.tagNames.join(', ') : '—'}
                       </td>
                       <td
                         className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] text-muted"
@@ -1021,12 +1138,6 @@ export default function DomainManagementPage({
                             Missing {health.missingDns.join(', ')}
                           </span>
                         )}
-                      </td>
-                      <td
-                        className="max-w-[240px] truncate px-2.5 py-2 text-[11px] text-muted"
-                        title={row.tagNames.join(', ')}
-                      >
-                        {row.tagNames.length > 0 ? row.tagNames.join(', ') : '—'}
                       </td>
                       <td className="tnum whitespace-nowrap px-2.5 py-2 text-[11px] text-muted">
                         <span

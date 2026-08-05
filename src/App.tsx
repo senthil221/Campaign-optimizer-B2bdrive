@@ -14,11 +14,13 @@ import {
   fetchDomainBounceRisks,
   fetchDomainHealthMetrics,
   fetchTagSendPerformance,
+  bulkReconnectEmailAccounts,
   fetchSequenceEditor,
   loadCampaigns,
   saveSequenceEdit,
   updateCampaignStatus,
   updateDomainSettings,
+  validateDomainDns,
   updateMaxLeadsPerDay,
   type CampaignStatusAction,
   type InboxQuery,
@@ -336,6 +338,44 @@ export default function App() {
     [],
   )
 
+  const handleValidateDomainDns = useCallback(async (): Promise<string> => {
+    const message = await validateDomainDns('')
+    setManagementLoading(true)
+    setManagementError(null)
+    try {
+      setAccounts(await fetchEmailAccounts(''))
+      setManagementLastUpdated(new Date())
+    } catch (refreshError) {
+      const detail =
+        refreshError instanceof Error ? refreshError.message : String(refreshError)
+      setManagementError(
+        `DNS validation completed, but account refresh failed: ${detail}`,
+      )
+    } finally {
+      setManagementLoading(false)
+    }
+    return message
+  }, [])
+
+  const handleBulkReconnect = useCallback(async (): Promise<string> => {
+    const message = await bulkReconnectEmailAccounts('')
+    setManagementLoading(true)
+    setManagementError(null)
+    try {
+      setAccounts(await fetchEmailAccounts(''))
+      setManagementLastUpdated(new Date())
+    } catch (refreshError) {
+      const detail =
+        refreshError instanceof Error ? refreshError.message : String(refreshError)
+      setManagementError(
+        `Bulk reconnect started, but account refresh failed: ${detail}`,
+      )
+    } finally {
+      setManagementLoading(false)
+    }
+    return message
+  }, [])
+
   useEffect(() => {
     if (activePage === 'domains' && !domainLoaded && !domainLoading) {
       void applyDomainRange()
@@ -603,6 +643,8 @@ export default function App() {
             loading={loading || managementLoading}
             error={managementError}
             onUpdate={handleDomainSettingsUpdate}
+            onValidateDns={handleValidateDomainDns}
+            onBulkReconnect={handleBulkReconnect}
           />
         )}
       </main>

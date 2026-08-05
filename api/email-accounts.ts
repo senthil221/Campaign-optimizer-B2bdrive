@@ -155,6 +155,29 @@ async function createTag(
   return res.status(201).json({ tag })
 }
 
+async function runBulkEmailAccountAction(
+  res: VercelResponse,
+  jwt: string,
+  endpoint: string,
+) {
+  const upstream = await fetch(`${SMARTLEAD_BASE}${endpoint}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  })
+  const text = await upstream.text()
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  res.status(upstream.status)
+  res.setHeader(
+    'content-type',
+    upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+  )
+  return res.send(text)
+}
+
 function domainFromEmail(value: unknown): string {
   const email = String(value ?? '').trim().toLowerCase()
   const at = email.lastIndexOf('@')
@@ -357,9 +380,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ) {
       return await createTag(req, res, jwt)
     }
+    if (
+      req.method === 'POST' &&
+      String(objectValue(req.body).mode ?? '') === 'validate-dns'
+    ) {
+      return await runBulkEmailAccountAction(
+        res,
+        jwt,
+        '/api/email-account/bulk-verify-domain-email-configurations',
+      )
+    }
+    if (
+      req.method === 'POST' &&
+      String(objectValue(req.body).mode ?? '') === 'bulk-reconnect'
+    ) {
+      return await runBulkEmailAccountAction(
+        res,
+        jwt,
+        '/api/email-account/bulk-save-failed-email-accounts',
+      )
+    }
   } catch (error) {
     return res.status(502).json({
-      error: `Tag Manager request failed: ${
+      error: `Email-account request failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
     })
