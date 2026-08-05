@@ -40,6 +40,8 @@ Instead it calls same-origin functions under `/api/*` which add the secret and f
 | `GET /api/campaign-list?offset=`  | `/api/email-campaigns/get-all-campaigns` (incl. campaign tags) |
 | `POST /api/campaign-analytics`    | `/api/email-campaigns/get-campaign-analytics` |
 | `POST /api/email-accounts`        | Hypertide's Smartlead bulk settings helper |
+| `GET /api/tags`                   | Smartlead GraphQL Tag Manager (all paginated tags) |
+| `POST /api/tags`                  | Smartlead GraphQL Tag Manager tag creation |
 
 ### Domain management
 

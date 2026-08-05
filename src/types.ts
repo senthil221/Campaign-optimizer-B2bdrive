@@ -7,6 +7,13 @@ export interface RawTag {
   name: string
 }
 
+export interface SmartleadTag {
+  id: number
+  name: string
+  color: string
+  createdAt: string | null
+}
+
 export interface RawTagMapping {
   tag?: RawTag | null
 }

@@ -19,6 +19,7 @@ import type {
   RawSequenceStep,
   SequenceEditRequest,
   SequenceStat,
+  SmartleadTag,
   TagSendPerformance,
 } from '../types'
 import { num } from '../utils/campaignCalculations'
@@ -39,6 +40,7 @@ const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
+const TAG_MANAGER_URL = '/api/tags'
 
 const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
@@ -206,6 +208,52 @@ export async function updateDomainSettings(
         request.domains.length === 1 ? '' : 's'
       }.`,
   }
+}
+
+export async function fetchSmartleadTags(jwt: string): Promise<SmartleadTag[]> {
+  const res = await fetch(TAG_MANAGER_URL, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  let payload: { tags?: SmartleadTag[]; error?: string } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // Handled by the error below.
+  }
+  if (!res.ok || !Array.isArray(payload.tags)) {
+    throw new Error(
+      payload.error ||
+        `Tag Manager request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  return payload.tags
+}
+
+export async function createSmartleadTag(
+  jwt: string,
+  name: string,
+): Promise<SmartleadTag> {
+  const res = await fetch(TAG_MANAGER_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ name }),
+  })
+  const text = await res.text()
+  let payload: { tag?: SmartleadTag; error?: string } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // Handled by the error below.
+  }
+  if (!res.ok || !payload.tag) {
+    throw new Error(
+      payload.error ||
+        `Create tag failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  return payload.tag
 }
 
 /**

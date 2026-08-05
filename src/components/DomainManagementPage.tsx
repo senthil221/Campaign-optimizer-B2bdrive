@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DomainBulkUpdateRequest,
   DomainHealthRow,
@@ -6,7 +6,12 @@ import type {
   DomainSettingsAction,
   DomainWarmupSettings,
   EmailAccount,
+  SmartleadTag,
 } from '../types'
+import {
+  createSmartleadTag,
+  fetchSmartleadTags,
+} from '../services/smartlead'
 import {
   buildDomainManagementRows,
   domainFromEmail,
@@ -73,26 +78,62 @@ function normalizePastedDomain(value: string): string {
   return domain.replace(/^@/, '').replace(/[.,]+$/, '')
 }
 
+function toggledFilterValues(
+  current: Set<string>,
+  value: string,
+): Set<string> {
+  if (value === 'all') return new Set()
+  const next = new Set(current)
+  if (next.has(value)) next.delete(value)
+  else next.add(value)
+  return next
+}
+
 function FilterMenu({
   label,
-  value,
+  values,
   options,
   open,
   onToggle,
-  onChange,
+  onClose,
+  onToggleValue,
 }: {
   label: string
-  value: string
+  values: Set<string>
   options: FilterOption[]
   open: boolean
   onToggle: () => void
-  onChange: (value: string) => void
+  onClose: () => void
+  onToggleValue: (value: string) => void
 }) {
-  const selectedLabel = options.find((option) => option.value === value)?.label ?? label
-  const active = value !== 'all'
+  const menuRef = useRef<HTMLDivElement>(null)
+  const active = values.size > 0
+  const selectedLabel =
+    values.size === 0
+      ? options.find((option) => option.value === 'all')?.label ?? 'All'
+      : values.size === 1
+        ? options.find((option) => values.has(option.value))?.label ??
+          '1 selected'
+        : `${values.size} selected`
+
+  useEffect(() => {
+    if (!open) return
+    const closeIfOutside = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) onClose()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('pointerdown', closeIfOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeIfOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onClose, open])
 
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         type="button"
         onClick={onToggle}
@@ -113,13 +154,19 @@ function FilterMenu({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => onChange(option.value)}
+                onClick={() => onToggleValue(option.value)}
                 className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[10px] transition hover:bg-white/[0.05] ${
-                  option.value === value ? 'bg-lime/[0.08] text-lime' : 'text-muted'
+                  (option.value === 'all'
+                    ? values.size === 0
+                    : values.has(option.value))
+                    ? 'bg-lime/[0.08] text-lime'
+                    : 'text-muted'
                 }`}
               >
                 <span className="truncate">{option.label}</span>
-                {option.value === value && <span>✓</span>}
+                {(option.value === 'all'
+                  ? values.size === 0
+                  : values.has(option.value)) && <span>✓</span>}
               </button>
             ))}
           </div>
@@ -244,9 +291,13 @@ export default function DomainManagementPage({
   onUpdate,
 }: Props) {
   const rows = useMemo(() => buildDomainManagementRows(accounts), [accounts])
-  const [tagFilter, setTagFilter] = useState('all')
-  const [warmupFilter, setWarmupFilter] = useState('all')
-  const [senderFilter, setSenderFilter] = useState('all')
+  const [tagFilters, setTagFilters] = useState<Set<string>>(() => new Set())
+  const [warmupFilters, setWarmupFilters] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const [senderFilters, setSenderFilters] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
   const [sortKey, setSortKey] = useState<SortKey>('domain')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
@@ -266,6 +317,12 @@ export default function DomainManagementPage({
   const [warmupTag, setWarmupTag] = useState('hey-there')
   const [rampupEnabled, setRampupEnabled] = useState(true)
   const [serverKnownTags, setServerKnownTags] = useState<string[]>([])
+  const [tagManagerTags, setTagManagerTags] = useState<SmartleadTag[]>([])
+  const [tagManagerLoading, setTagManagerLoading] = useState(false)
+  const [tagManagerError, setTagManagerError] = useState<string | null>(null)
+  const [newTagName, setNewTagName] = useState('')
+  const [creatingTag, setCreatingTag] = useState(false)
+  const tagFetchStartedRef = useRef(false)
 
   useEffect(() => {
     const domains = new Set(rows.map((row) => row.domain))
@@ -273,6 +330,26 @@ export default function DomainManagementPage({
       (current) => new Set(Array.from(current).filter((domain) => domains.has(domain))),
     )
   }, [rows])
+
+  const loadTagManagerTags = useCallback(async () => {
+    setTagManagerLoading(true)
+    setTagManagerError(null)
+    try {
+      setTagManagerTags(await fetchSmartleadTags(''))
+    } catch (loadError) {
+      setTagManagerError(
+        loadError instanceof Error ? loadError.message : String(loadError),
+      )
+    } finally {
+      setTagManagerLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tagFetchStartedRef.current) return
+    tagFetchStartedRef.current = true
+    void loadTagManagerTags()
+  }, [loadTagManagerTags])
 
   const knownTags = useMemo(
     () =>
@@ -283,10 +360,21 @@ export default function DomainManagementPage({
   )
   const selectableTags = useMemo(
     () =>
-      Array.from(new Set([...knownTags, ...serverKnownTags])).sort((a, b) =>
-        a.localeCompare(b),
+      Array.from(
+        new Set([
+          ...knownTags,
+          ...serverKnownTags,
+          ...tagManagerTags.map((tag) => tag.name),
+        ]),
+      ).sort((a, b) => a.localeCompare(b)),
+    [knownTags, serverKnownTags, tagManagerTags],
+  )
+  const tagColorByName = useMemo(
+    () =>
+      new Map(
+        tagManagerTags.map((tag) => [tag.name.toLowerCase(), tag.color]),
       ),
-    [knownTags, serverKnownTags],
+    [tagManagerTags],
   )
   const tagFilterOptions = useMemo<FilterOption[]>(
     () => [
@@ -331,18 +419,21 @@ export default function DomainManagementPage({
 
   const visibleRows = useMemo(() => {
     const filtered = rows.filter((row) => {
-      if (tagFilter === 'untagged' && row.tagNames.length > 0) return false
+      if (tagFilters.size > 0) {
+        const matchesTag =
+          (tagFilters.has('untagged') && row.tagNames.length === 0) ||
+          row.tagNames.some((tagName) => tagFilters.has(tagName))
+        if (!matchesTag) return false
+      }
       if (
-        tagFilter !== 'all' &&
-        tagFilter !== 'untagged' &&
-        !row.tagNames.includes(tagFilter)
+        warmupFilters.size > 0 &&
+        !warmupFilters.has(row.warmupState)
       )
         return false
-      if (warmupFilter !== 'all' && row.warmupState !== warmupFilter) return false
       if (
-        senderFilter !== 'all' &&
+        senderFilters.size > 0 &&
         !row.senderNames.some(
-          (sender) => sender.name.toLowerCase() === senderFilter,
+          (sender) => senderFilters.has(sender.name.toLowerCase()),
         )
       )
         return false
@@ -391,11 +482,11 @@ export default function DomainManagementPage({
   }, [
     healthByDomain,
     rows,
-    senderFilter,
+    senderFilters,
     sortDirection,
     sortKey,
-    tagFilter,
-    warmupFilter,
+    tagFilters,
+    warmupFilters,
   ])
 
   const selectedRows = useMemo(
@@ -439,12 +530,12 @@ export default function DomainManagementPage({
         )
       : null
   const filtersActive =
-    tagFilter !== 'all' || warmupFilter !== 'all' || senderFilter !== 'all'
+    tagFilters.size > 0 || warmupFilters.size > 0 || senderFilters.size > 0
 
   const clearFilters = () => {
-    setTagFilter('all')
-    setWarmupFilter('all')
-    setSenderFilter('all')
+    setTagFilters(new Set())
+    setWarmupFilters(new Set())
+    setSenderFilters(new Set())
     setOpenFilter(null)
   }
 
@@ -491,6 +582,22 @@ export default function DomainManagementPage({
     })
   }
 
+  const resetAfterSuccessfulUpdate = () => {
+    setSelected(new Set())
+    clearFilters()
+    setPasteOpen(false)
+    setPastedDomains('')
+    setPasteMode('add')
+    setTags('')
+    setMessagePerDay(9)
+    setMinTimeToWaitInMins(60)
+    setWarmupMax(5)
+    setWarmupRamp(1)
+    setWarmupReplyRate(60)
+    setWarmupTag('hey-there')
+    setRampupEnabled(true)
+  }
+
   const runUpdate = async (
     action: DomainSettingsAction,
     extra: Pick<DomainBulkUpdateRequest, 'tags' | 'settings'>,
@@ -507,6 +614,7 @@ export default function DomainManagementPage({
         ...extra,
       })
       setNotice(message)
+      resetAfterSuccessfulUpdate()
     } catch (updateError) {
       const message =
         updateError instanceof Error ? updateError.message : String(updateError)
@@ -544,6 +652,68 @@ export default function DomainManagementPage({
         .filter(Boolean),
     ),
   )
+  const toggleConfiguredTag = (tagName: string) => {
+    setTags((current) => {
+      const currentTags = Array.from(
+        new Set(
+          current
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      )
+      const next = currentTags.includes(tagName)
+        ? currentTags.filter((tag) => tag !== tagName)
+        : [...currentTags, tagName]
+      return next.join(', ')
+    })
+  }
+
+  const addConfiguredTag = (tagName: string) => {
+    setTags((current) =>
+      Array.from(
+        new Set([
+          ...current
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+          tagName,
+        ]),
+      ).join(', '),
+    )
+  }
+
+  const createTag = async () => {
+    const name = newTagName.trim()
+    if (!name || creatingTag) return
+    const existing = selectableTags.find(
+      (tag) => tag.toLowerCase() === name.toLowerCase(),
+    )
+    if (existing) {
+      addConfiguredTag(existing)
+      setNewTagName('')
+      setTagManagerError(null)
+      return
+    }
+
+    setCreatingTag(true)
+    setTagManagerError(null)
+    try {
+      const created = await createSmartleadTag('', name)
+      setTagManagerTags((current) => [
+        created,
+        ...current.filter((tag) => tag.id !== created.id),
+      ])
+      addConfiguredTag(created.name)
+      setNewTagName('')
+    } catch (createError) {
+      setTagManagerError(
+        createError instanceof Error ? createError.message : String(createError),
+      )
+    } finally {
+      setCreatingTag(false)
+    }
+  }
   const knownTagSet = new Set(selectableTags)
   const invalidTags = parsedTags.filter((tag) => !knownTagSet.has(tag))
   const tagInputError =
@@ -641,7 +811,7 @@ export default function DomainManagementPage({
           <div className="flex flex-wrap items-center justify-end gap-2">
             <FilterMenu
               label="Sender"
-              value={senderFilter}
+              values={senderFilters}
               options={senderFilterOptions}
               open={openFilter === 'sender'}
               onToggle={() =>
@@ -649,32 +819,36 @@ export default function DomainManagementPage({
                   current === 'sender' ? null : 'sender',
                 )
               }
-              onChange={(value) => {
-                setSenderFilter(value)
-                setOpenFilter(null)
-              }}
+              onClose={() => setOpenFilter(null)}
+              onToggleValue={(value) =>
+                setSenderFilters((current) =>
+                  toggledFilterValues(current, value),
+                )
+              }
             />
             <FilterMenu
               label="Tags"
-              value={tagFilter}
+              values={tagFilters}
               options={tagFilterOptions}
               open={openFilter === 'tags'}
               onToggle={() => setOpenFilter((current) => current === 'tags' ? null : 'tags')}
-              onChange={(value) => {
-                setTagFilter(value)
-                setOpenFilter(null)
-              }}
+              onClose={() => setOpenFilter(null)}
+              onToggleValue={(value) =>
+                setTagFilters((current) => toggledFilterValues(current, value))
+              }
             />
             <FilterMenu
               label="Warmup"
-              value={warmupFilter}
+              values={warmupFilters}
               options={warmupFilterOptions}
               open={openFilter === 'warmup'}
               onToggle={() => setOpenFilter((current) => current === 'warmup' ? null : 'warmup')}
-              onChange={(value) => {
-                setWarmupFilter(value)
-                setOpenFilter(null)
-              }}
+              onClose={() => setOpenFilter(null)}
+              onToggleValue={(value) =>
+                setWarmupFilters((current) =>
+                  toggledFilterValues(current, value),
+                )
+              }
             />
             <button
               type="button"
@@ -914,9 +1088,54 @@ export default function DomainManagementPage({
               {tagInputError}
             </div>
           )}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              void createTag()
+            }}
+          >
+            <span className={LABEL}>Create Tag Manager tag</span>
+            <div className="flex gap-2">
+              <input
+                value={newTagName}
+                onChange={(event) => setNewTagName(event.target.value)}
+                placeholder="Tag name"
+                maxLength={100}
+                disabled={creatingTag}
+                className={INPUT}
+              />
+              <button
+                type="submit"
+                disabled={!newTagName.trim() || creatingTag}
+                className="h-10 shrink-0 rounded-lg border border-lime/30 bg-lime/[0.09] px-3 text-[10px] font-semibold text-lime transition hover:bg-lime/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {creatingTag ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+            <p className="mt-1 text-[9px] text-faint">
+              A color is assigned automatically.
+            </p>
+          </form>
+          {tagManagerError && (
+            <div className="rounded-md border border-critical/20 bg-critical/10 px-2.5 py-2 text-[10px] text-critical">
+              <div>{tagManagerError}</div>
+              <button
+                type="button"
+                onClick={() => void loadTagManagerTags()}
+                disabled={tagManagerLoading}
+                className="mt-1 font-semibold underline underline-offset-2 disabled:opacity-50"
+              >
+                Retry loading tags
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between">
-            <span className={LABEL.replace('mb-1 ', '')}>Available tags</span>
-            <span className="tnum text-[9px] text-faint">{selectableTags.length}</span>
+            <span className={LABEL.replace('mb-1 ', '')}>
+              Tag Manager tags
+            </span>
+            <span className="tnum text-[9px] text-faint">
+              {tagManagerLoading ? 'Loading…' : selectableTags.length}
+            </span>
           </div>
           <div className="max-h-28 min-h-16 overflow-y-auto overscroll-contain rounded-lg border border-line bg-panel-2 p-2">
             <div className="flex flex-wrap gap-1.5">
@@ -925,16 +1144,31 @@ export default function DomainManagementPage({
                   <button
                     key={tag}
                     type="button"
-                    onClick={() =>
-                      setTags(Array.from(new Set([...parsedTags, tag])).join(', '))
-                    }
-                    className="rounded-md border border-line bg-panel px-2 py-1 text-[10px] text-muted transition hover:border-lime/30 hover:text-lime"
+                    onClick={() => toggleConfiguredTag(tag)}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition ${
+                      parsedTags.includes(tag)
+                        ? 'border-lime/30 bg-lime/[0.09] text-lime'
+                        : 'border-line bg-panel text-muted hover:border-lime/30 hover:text-lime'
+                    }`}
                   >
+                    <span
+                      aria-hidden="true"
+                      className="h-2 w-2 rounded-full ring-1 ring-black/10"
+                      style={{
+                        backgroundColor:
+                          tagColorByName.get(tag.toLowerCase()) ?? '#9ca3af',
+                      }}
+                    />
                     {tag}
+                    {parsedTags.includes(tag) && <span>✓</span>}
                   </button>
                 ))
+              ) : tagManagerLoading ? (
+                <span className="px-1 text-[9px] text-faint">Loading tags…</span>
               ) : (
-                <span className="px-1 text-[9px] text-faint">No tags loaded</span>
+                <span className="px-1 text-[9px] text-faint">
+                  No Tag Manager tags found
+                </span>
               )}
             </div>
           </div>
