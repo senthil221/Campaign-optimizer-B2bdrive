@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   CampaignGeneralSettings,
   CampaignPerformance,
@@ -300,10 +300,12 @@ function ActionCell({
   id,
   status,
   onUpdate,
+  disabled = false,
 }: {
   id: number
   status: string
   onUpdate: (id: number, action: CampaignStatusAction) => Promise<void>
+  disabled?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
@@ -336,7 +338,7 @@ function ActionCell({
   return (
     <button
       onClick={run}
-      disabled={busy}
+      disabled={busy || disabled}
       title={error ? 'Last attempt failed — click to retry' : `${label} this campaign`}
       className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
         error ? 'border-critical/60 text-critical hover:bg-critical/10' : tone
@@ -483,8 +485,30 @@ export default function CampaignPerformanceTable({
   })
   const [expanded, setExpanded] = useState<number | null>(null)
   const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
+  const [selected, setSelected] = useState<Set<number>>(() => new Set())
+  const [bulkAction, setBulkAction] = useState<CampaignStatusAction | null>(null)
+  const [bulkNotice, setBulkNotice] = useState<{
+    message: string
+    error: boolean
+  } | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
+  const selectionAnchorRef = useRef<number | null>(null)
 
   useEffect(() => saveStatusFilter(statusFilter), [statusFilter])
+
+  useEffect(() => {
+    const campaignIds = new Set(rows.map((row) => row.campaign.campaignId))
+    setSelected(
+      (current) =>
+        new Set(Array.from(current).filter((id) => campaignIds.has(id))),
+    )
+  }, [rows])
+
+  useEffect(() => {
+    if (!bulkNotice) return
+    const timeout = window.setTimeout(() => setBulkNotice(null), 2500)
+    return () => window.clearTimeout(timeout)
+  }, [bulkNotice])
 
   // Click a header: same column flips direction, a new column starts at its
   // natural default (completion ascends — lowest-progress first; the rest
@@ -524,8 +548,8 @@ export default function CampaignPerformanceTable({
   }
 
   const show = (id: ColumnId) => visibleCols[id] !== false
-  // 1 = always-on Campaign column, plus every visible toggleable column.
-  const colCount = 1 + PERF_COLUMNS.filter((c) => show(c.id)).length
+  // Selection + always-on Campaign, plus every visible toggleable column.
+  const colCount = 2 + PERF_COLUMNS.filter((c) => show(c.id)).length
 
   const toggleExpand = (id: number) => {
     if (expanded === id) {
@@ -576,6 +600,137 @@ export default function CampaignPerformanceTable({
     return [...filtered].sort((a, b) => (val(a) - val(b)) * mul)
   }, [filtered, sort])
 
+  const selectedVisibleCount = sorted.reduce(
+    (count, row) =>
+      count + (selected.has(row.campaign.campaignId) ? 1 : 0),
+    0,
+  )
+  const allVisibleSelected =
+    sorted.length > 0 && selectedVisibleCount === sorted.length
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate =
+        selectedVisibleCount > 0 && !allVisibleSelected
+    }
+  }, [allVisibleSelected, selectedVisibleCount])
+
+  const selectCampaign = (
+    campaignId: number,
+    checked: boolean,
+    shiftKey: boolean,
+  ) => {
+    const targetIndex = sorted.findIndex(
+      (row) => row.campaign.campaignId === campaignId,
+    )
+    const anchorIndex =
+      selectionAnchorRef.current === null
+        ? -1
+        : sorted.findIndex(
+            (row) =>
+              row.campaign.campaignId === selectionAnchorRef.current,
+          )
+    setSelected((current) => {
+      const next = new Set(current)
+      const range =
+        shiftKey && anchorIndex >= 0 && targetIndex >= 0
+          ? sorted.slice(
+              Math.min(anchorIndex, targetIndex),
+              Math.max(anchorIndex, targetIndex) + 1,
+            )
+          : sorted.filter(
+              (row) => row.campaign.campaignId === campaignId,
+            )
+      for (const row of range) {
+        if (checked) next.add(row.campaign.campaignId)
+        else next.delete(row.campaign.campaignId)
+      }
+      return next
+    })
+    selectionAnchorRef.current = campaignId
+  }
+
+  const toggleVisible = () => {
+    selectionAnchorRef.current = null
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const row of sorted) {
+        const id = row.campaign.campaignId
+        if (allVisibleSelected) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => {
+    selectionAnchorRef.current = null
+    setSelected(new Set())
+  }
+
+  const runBulkStatus = async (action: CampaignStatusAction) => {
+    const campaignIds = Array.from(selected)
+    if (campaignIds.length === 0 || bulkAction) return
+    if (
+      action === 'STOPPED' &&
+      !window.confirm(
+        `Stop ${campaignIds.length} selected campaign${
+          campaignIds.length === 1 ? '' : 's'
+        }? This immediately stops sending for the selected campaigns.`,
+      )
+    ) {
+      return
+    }
+
+    setBulkAction(action)
+    setBulkNotice(null)
+    const failures: number[] = []
+    let cursor = 0
+
+    const worker = async () => {
+      while (cursor < campaignIds.length) {
+        const campaignId = campaignIds[cursor++]
+        try {
+          await onUpdateStatus(campaignId, action)
+        } catch {
+          failures.push(campaignId)
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(4, campaignIds.length) },
+        () => worker(),
+      ),
+    )
+    setBulkAction(null)
+
+    const succeeded = campaignIds.length - failures.length
+    if (failures.length > 0) {
+      setSelected(new Set(failures))
+      selectionAnchorRef.current = null
+      setBulkNotice({
+        message: `${succeeded} updated; ${failures.length} failed and remain selected.`,
+        error: true,
+      })
+    } else {
+      clearSelection()
+      const verb =
+        action === 'START'
+          ? 'started'
+          : action === 'PAUSED'
+            ? 'paused'
+            : 'stopped'
+      setBulkNotice({
+        message: `${campaignIds.length} campaign${
+          campaignIds.length === 1 ? '' : 's'
+        } ${verb}.`,
+        error: false,
+      })
+    }
+  }
+
   return (
     <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
       {/* Section header */}
@@ -592,7 +747,7 @@ export default function CampaignPerformanceTable({
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-2 border-b border-line px-5 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-2">
         {/* Search */}
         <div className="relative flex items-center">
           <svg className="absolute left-2.5 text-faint/50" width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -628,6 +783,65 @@ export default function CampaignPerformanceTable({
           visibleCols={visibleCols}
           onColumnsChange={onColumnsChange}
         />
+
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+          {bulkNotice && (
+            <span
+              role="status"
+              className={`mr-1 text-[10px] font-medium ${
+                bulkNotice.error ? 'text-critical' : 'text-positive'
+              }`}
+            >
+              {bulkNotice.message}
+            </span>
+          )}
+          <span className="hidden text-[10px] text-faint 2xl:inline">
+            Shift-click to select a range
+          </span>
+          <span
+            className={`tnum rounded-md px-2 py-1 text-[10px] font-medium ${
+              selected.size > 0
+                ? 'bg-lime/[0.08] text-lime'
+                : 'bg-white/[0.025] text-faint'
+            }`}
+          >
+            {selected.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => void runBulkStatus('START')}
+            disabled={selected.size === 0 || bulkAction !== null}
+            className="h-7 rounded-md border border-positive/30 px-2.5 text-[10px] font-semibold text-positive transition hover:bg-positive/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bulkAction === 'START' ? 'Starting…' : 'Start'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulkStatus('PAUSED')}
+            disabled={selected.size === 0 || bulkAction !== null}
+            className="h-7 rounded-md border border-warn/30 px-2.5 text-[10px] font-semibold text-warn transition hover:bg-warn/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bulkAction === 'PAUSED' ? 'Pausing…' : 'Pause'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulkStatus('STOPPED')}
+            disabled={selected.size === 0 || bulkAction !== null}
+            className="h-7 rounded-md border border-critical/30 px-2.5 text-[10px] font-semibold text-critical transition hover:bg-critical/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {bulkAction === 'STOPPED' ? 'Stopping…' : 'Stop'}
+          </button>
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={bulkAction !== null}
+              className="h-7 rounded-md border border-line px-2 text-[10px] font-medium text-muted transition hover:text-ink disabled:opacity-40"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -635,9 +849,20 @@ export default function CampaignPerformanceTable({
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-panel-2/95 backdrop-blur-sm">
             <tr className="border-b border-line">
+              <th className="w-10 px-3 py-2 text-center align-middle">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleVisible}
+                  disabled={bulkAction !== null}
+                  aria-label="Select all visible campaigns"
+                  className="h-3.5 w-3.5 accent-lime disabled:opacity-40"
+                />
+              </th>
               {headCell('completion', 'Campaign', {
                 left: true,
-                extra: 'pl-5',
+                extra: 'pl-2',
                 title: 'Sort by completion %',
               })}
               {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
@@ -678,13 +903,35 @@ export default function CampaignPerformanceTable({
             {sorted.map((r) => {
               const c = r.campaign
               const isOpen = expanded === c.campaignId
+              const isSelected = selected.has(c.campaignId)
               return (
                 <Fragment key={c.campaignId}>
                 <tr
                   className={`group border-b border-line-soft transition-colors last:border-0 hover:bg-white/[0.03] ${
-                    isOpen ? 'bg-white/[0.03]' : ''
+                    isSelected
+                      ? 'bg-lime/[0.055]'
+                      : isOpen
+                        ? 'bg-white/[0.03]'
+                        : ''
                   }`}
                 >
+                  <td className="w-10 px-3 py-1.5 text-center align-middle">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(event) =>
+                        selectCampaign(
+                          c.campaignId,
+                          event.target.checked,
+                          (event.nativeEvent as MouseEvent).shiftKey,
+                        )
+                      }
+                      disabled={bulkAction !== null}
+                      aria-label={`Select ${c.campaignName}`}
+                      title="Shift-click to select or deselect a range"
+                      className="h-3.5 w-3.5 accent-lime disabled:opacity-40"
+                    />
+                  </td>
                   <td className="max-w-[360px] px-4 py-1.5 pl-3 align-middle">
                     <div className="group/name flex items-center gap-2.5">
                       <span title={leadBreakdownTitle(c)} className="shrink-0">
@@ -820,6 +1067,7 @@ export default function CampaignPerformanceTable({
                         id={c.campaignId}
                         status={r.status}
                         onUpdate={onUpdateStatus}
+                        disabled={bulkAction !== null}
                       />
                     </td>
                   )}
