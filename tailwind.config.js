@@ -4,10 +4,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Satoshi', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        display: ['"Clash Display"', 'Satoshi', 'ui-sans-serif', 'sans-serif'],
-        // Numbers reuse Satoshi with tabular figures (see .tnum) — no mono.
-        mono: ['Satoshi', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // Numbers reuse PP Neue Montreal with tabular figures (see .tnum).
+        mono: ['"PP Neue Montreal"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
         white: 'rgb(var(--color-overlay) / <alpha-value>)',
