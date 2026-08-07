@@ -109,6 +109,8 @@ export interface EmailAccount {
   id: number
   fromEmail: string
   fromName: string
+  /** Mailbox provider reported by Smartlead, such as OUTLOOK or GMAIL. */
+  providerType: string
   createdAt: string | null
   messagePerDay: number
   dailySentCount: number
@@ -130,6 +132,7 @@ export interface EmailAccount {
 
 export interface DomainManagementRow {
   domain: string
+  providerTypes: string[]
   accounts: EmailAccount[]
   senderNames: Array<{
     name: string
@@ -218,6 +221,7 @@ export interface DomainBounceRisk {
 }
 
 export interface DomainHealthRow extends DomainHealthMetric {
+  providerTypes: string[]
   tagNames: string[]
   accountCount: number
   messagePerDay: number

@@ -34,6 +34,7 @@ export function buildDomainHealthRows(
     {
       count: number
       messagePerDay: number
+      providerTypes: Set<string>
       tagNames: Set<string>
       reputationSum: number
       reputationCount: number
@@ -48,6 +49,7 @@ export function buildDomainHealthRows(
     const current = accountMap.get(domain) ?? {
       count: 0,
       messagePerDay: 0,
+      providerTypes: new Set<string>(),
       tagNames: new Set<string>(),
       reputationSum: 0,
       reputationCount: 0,
@@ -56,6 +58,7 @@ export function buildDomainHealthRows(
       dmarcVerified: true,
     }
     current.count += 1
+    if (account.providerType) current.providerTypes.add(account.providerType)
     if (account.connected) current.messagePerDay += account.messagePerDay
     for (const tagName of account.tagNames) {
       const normalizedTag = tagName.trim()
@@ -98,6 +101,9 @@ export function buildDomainHealthRows(
         bounced: metric.bounced,
         replyRate: metric.sent > 0 ? (metric.replied / metric.sent) * 100 : 0,
         bounceRate: metric.sent > 0 ? (metric.bounced / metric.sent) * 100 : 0,
+        providerTypes: Array.from(account?.providerTypes ?? []).sort((a, b) =>
+          a.localeCompare(b),
+        ),
         tagNames: Array.from(account?.tagNames ?? []).sort((a, b) =>
           a.localeCompare(b),
         ),

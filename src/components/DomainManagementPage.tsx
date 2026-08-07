@@ -17,6 +17,7 @@ import {
   domainFromEmail,
   isValidDomain,
 } from '../utils/domainManagement'
+import { EmailProviderIcons } from './EmailProviderIcon'
 
 interface Props {
   accounts: EmailAccount[]
@@ -1073,7 +1074,10 @@ export default function DomainManagementPage({
                         />
                       </td>
                       <td className="whitespace-nowrap px-2.5 py-2 text-[11px] font-medium text-ink">
-                        {row.domain}
+                        <span className="inline-flex items-center gap-2">
+                          <EmailProviderIcons providers={row.providerTypes} />
+                          <span>{row.domain}</span>
+                        </span>
                       </td>
                       <td className="max-w-[300px] px-2.5 py-2 text-[10px] text-muted">
                         <div className="flex flex-wrap gap-1">

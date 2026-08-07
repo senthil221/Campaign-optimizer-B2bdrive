@@ -64,6 +64,13 @@ export function buildDomainManagementRows(
 
     return {
       domain,
+      providerTypes: Array.from(
+        new Set(
+          domainAccounts
+            .map((account) => account.providerType)
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
       accounts: domainAccounts,
       senderNames: Array.from(senderNameMap.values()).sort((a, b) =>
         a.name.localeCompare(b.name),

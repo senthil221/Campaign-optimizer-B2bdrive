@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import type { DomainBounceRisk, DomainHealthRow } from '../types'
 import { isValidDomain } from '../utils/domainManagement'
+import { EmailProviderIcons } from './EmailProviderIcon'
 
 const fmt = (value: number) => value.toLocaleString()
 const pct = (value: number) => `${value.toFixed(2)}%`
@@ -1045,6 +1046,7 @@ export default function DomainHealthPage({
                     </td>
                     <td className={`${TD} font-medium text-ink`}>
                       <span className="inline-flex items-center gap-2">
+                        <EmailProviderIcons providers={row.providerTypes} />
                         <span>{row.domain}</span>
                         <button
                           type="button"

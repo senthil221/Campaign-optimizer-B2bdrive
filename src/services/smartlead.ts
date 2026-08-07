@@ -138,6 +138,7 @@ export function normalizeEmailAccount(
     id: num(raw?.id, 0),
     fromEmail: String(raw?.from_email ?? ''),
     fromName: String(raw?.from_name ?? ''),
+    providerType: String(raw?.type ?? '').trim().toUpperCase(),
     createdAt:
       typeof raw?.created_at === 'string' && raw.created_at.trim()
         ? raw.created_at
@@ -221,6 +222,7 @@ function bulkAccountPayload(account: EmailAccount): RawEmailAccount {
       id: account.id,
       from_email: account.fromEmail,
       from_name: account.fromName,
+      type: account.providerType,
       created_at: account.createdAt,
       message_per_day: account.messagePerDay,
       daily_sent_count: account.dailySentCount,
