@@ -57,6 +57,7 @@ const LABEL =
 type SortKey =
   | 'domain'
   | 'senderName'
+  | 'tags'
   | 'ageDays'
   | 'dailyLimit'
   | 'sent'
@@ -491,6 +492,15 @@ export default function DomainManagementPage({
           .map((sender) => sender.name)
           .join(', ')
           .localeCompare(b.senderNames.map((sender) => sender.name).join(', '))
+      }
+      if (sortKey === 'tags') {
+        // Untagged domains sort last ascending, first descending.
+        const aTags = a.tagNames.join(', ')
+        const bTags = b.tagNames.join(', ')
+        if (!aTags && !bTags) comparison = 0
+        else if (!aTags) comparison = 1
+        else if (!bTags) comparison = -1
+        else comparison = aTags.localeCompare(bTags)
       }
       if (sortKey === 'ageDays') {
         if (a.ageDays === null && b.ageDays === null) comparison = 0
@@ -1149,7 +1159,7 @@ export default function DomainManagementPage({
                   </th>
                   <SortHeader label="Domain" sortKey="domain" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Sender names" sortKey="senderName" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
-                  <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
+                  <SortHeader label="Tags" sortKey="tags" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Sent" sortKey="sent" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
