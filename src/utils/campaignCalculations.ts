@@ -411,6 +411,8 @@ export function buildCampaignPerformance(
         leadRate,
         bounced: c.bounceCount,
         bounceRate: rate(c.bounceCount, c.sentCount),
+        senderBounced: c.leadStats.senderBounced,
+        senderBounceRate: rate(c.leadStats.senderBounced, c.sentCount),
         maxLeadsPerDay: c.maxLeadsPerDay,
       }
     })

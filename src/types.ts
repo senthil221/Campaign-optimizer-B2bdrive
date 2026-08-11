@@ -423,6 +423,10 @@ export interface CampaignPerformance {
   bounced: number
   /** bounced ÷ sent × 100. */
   bounceRate: number
+  /** Sender-side bounces (the sending mailbox itself bounced). */
+  senderBounced: number
+  /** senderBounced ÷ sent × 100. */
+  senderBounceRate: number
   maxLeadsPerDay: number | null
 }
 

@@ -35,6 +35,7 @@ export const PERF_COLUMNS = [
   { id: 'positive', label: 'Leads' },
   { id: 'leadRate', label: 'Lead Rate' },
   { id: 'bounced', label: 'Bounced' },
+  { id: 'senderBounced', label: 'Sender bnc.' },
   { id: 'maxLeads', label: 'Max leads/day' },
   { id: 'actions', label: 'Actions' },
 ] as const
@@ -110,6 +111,7 @@ type SortKey =
   | 'positive'
   | 'leadRate'
   | 'bounced'
+  | 'senderBounced'
 
 // The numeric a sort key reads from each row.
 const SORT_VALUE: Record<SortKey, (r: CampaignPerformance) => number> = {
@@ -120,6 +122,7 @@ const SORT_VALUE: Record<SortKey, (r: CampaignPerformance) => number> = {
   positive: (r) => r.interested,
   leadRate: (r) => r.leadRate,
   bounced: (r) => r.bounced,
+  senderBounced: (r) => r.senderBounced,
 }
 
 // Direction applied when a column is first clicked.
@@ -131,6 +134,7 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   positive: 'desc',
   leadRate: 'desc',
   bounced: 'desc',
+  senderBounced: 'desc',
 }
 
 // One compact glyph next to the campaign name for the General-settings check
@@ -872,7 +876,16 @@ export default function CampaignPerformanceTable({
               {show('ooo') && headCell('ooo', 'OOO')}
               {show('positive') && headCell('positive', 'Leads')}
               {show('leadRate') && headCell('leadRate', 'Lead Rate')}
-              {show('bounced') && headCell('bounced', 'Bounced')}
+              {show('bounced') &&
+                headCell('bounced', 'Bounced', {
+                  title:
+                    'Recipient bounces (undeliverable to the prospect). Sort by bounce count.',
+                })}
+              {show('senderBounced') &&
+                headCell('senderBounced', 'Sender bnc.', {
+                  title:
+                    'Sender-side bounces (your sending mailbox itself bounced). Sort by sender-bounce count.',
+                })}
               {show('maxLeads') && (
                 <th className={`${TH} border-l border-line/60 text-right`}>Max leads/day</th>
               )}
@@ -1049,6 +1062,23 @@ export default function CampaignPerformanceTable({
                   )}
                   {show('bounced') && (
                     <RateCell count={r.bounced} rate={r.bounceRate} tone="critical" />
+                  )}
+                  {show('senderBounced') && (
+                    <td
+                      className={`${TD} text-right`}
+                      title="Sender-side bounces — your own sending mailbox bounced. Any occurrence needs attention."
+                    >
+                      <span
+                        className={`text-[13px] font-semibold ${
+                          r.senderBounced > 0 ? 'text-critical' : 'text-faint'
+                        }`}
+                      >
+                        {pct(r.senderBounceRate)}
+                      </span>{' '}
+                      <span className="text-[10px] font-medium text-faint">
+                        ({fmt(r.senderBounced)})
+                      </span>
+                    </td>
                   )}
 
                   {show('maxLeads') && (

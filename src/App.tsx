@@ -69,6 +69,7 @@ const allVisible = (cols: readonly { id: string }[]): Record<string, boolean> =>
   Object.fromEntries(cols.map((c) => [c.id, true]))
 const DEFAULT_PERF_COLUMNS: Record<string, boolean> = {
   ...allVisible(PERF_COLUMNS),
+  tag: false,
   ooo: false,
   status: false,
 }
@@ -76,6 +77,28 @@ const DEFAULT_TAG_COLUMNS: Record<string, boolean> = {
   ...allVisible(TAG_COLUMNS),
   demand: false,
 }
+
+// One-time migration: the Tag column is now hidden by default. Drop any
+// previously-persisted `tag` visibility so existing browsers pick up the new
+// default, without disturbing other saved column choices. Runs once at module
+// load (before render), so the user can still re-enable Tag from the Columns
+// menu afterwards. Kept out of the useState initializer, which StrictMode
+// double-invokes in dev.
+const PERF_TAG_MIGRATION_KEY = 'sl_perf_tag_hidden_v1'
+function migratePerfColumnsOnce(): void {
+  try {
+    if (localStorage.getItem(PERF_TAG_MIGRATION_KEY)) return
+    const stored = loadVisibleColumns(PERF_COLUMNS_KEY)
+    if ('tag' in stored) {
+      delete stored.tag
+      saveVisibleColumns(PERF_COLUMNS_KEY, stored)
+    }
+    localStorage.setItem(PERF_TAG_MIGRATION_KEY, '1')
+  } catch {
+    /* ignore disabled storage */
+  }
+}
+migratePerfColumnsOnce()
 
 const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Kolkata',
