@@ -156,16 +156,17 @@ export default function App() {
   const [domainError, setDomainError] = useState<string | null>(null)
   const [domainLastUpdated, setDomainLastUpdated] = useState<Date | null>(null)
   const [managementLoading, setManagementLoading] = useState(false)
+  const [managementStartDate, setManagementStartDate] = useState(() =>
+    getIstDateOffset(2),
+  )
+  const [managementEndDate, setManagementEndDate] = useState(() =>
+    getIstDateOffset(0),
+  )
   const [managementDomainMetrics, setManagementDomainMetrics] = useState<
-    DomainHealthMetric[]
-  >([])
-  const [managementTodayMetrics, setManagementTodayMetrics] = useState<
     DomainHealthMetric[]
   >([])
   const [managementHealthLoaded, setManagementHealthLoaded] = useState(false)
   const [managementMetricsAvailable, setManagementMetricsAvailable] =
-    useState(false)
-  const [managementTodayMetricsAvailable, setManagementTodayMetricsAvailable] =
     useState(false)
   const [managementError, setManagementError] = useState<string | null>(null)
   const [managementLastUpdated, setManagementLastUpdated] =
@@ -323,48 +324,62 @@ export default function App() {
     [loadDomainHealth],
   )
 
-  const refreshDomainManagement = useCallback(async () => {
-    setManagementLoading(true)
-    setManagementError(null)
-    const now = new Date()
-    const startDate = getIstDateOffset(2, now)
-    const endDate = getIstDateOffset(0, now)
-    const [accountsResult, metricsResult, todayMetricsResult] =
-      await Promise.allSettled([
-        fetchEmailAccounts(''),
+  const loadDomainManagement = useCallback(
+    async (startDate: string, endDate: string, refreshAccounts: boolean) => {
+      if (!startDate || !endDate || startDate > endDate) {
+        return
+      }
+      setManagementLoading(true)
+      setManagementError(null)
+      const [accountsResult, metricsResult] = await Promise.allSettled([
+        refreshAccounts ? fetchEmailAccounts('') : Promise.resolve(null),
         fetchDomainHealthMetrics('', startDate, endDate),
-        fetchDomainHealthMetrics('', endDate, endDate),
       ])
-    const failures: string[] = []
-    if (accountsResult.status === 'fulfilled') {
-      setAccounts(accountsResult.value)
-    } else {
-      failures.push(
-        `Accounts: ${accountsResult.reason?.message ?? accountsResult.reason}`,
-      )
-    }
-    if (metricsResult.status === 'fulfilled') {
-      setManagementDomainMetrics(metricsResult.value)
-      setManagementMetricsAvailable(true)
-    } else {
-      failures.push(
-        `Latest 3-day health: ${metricsResult.reason?.message ?? metricsResult.reason}`,
-      )
-    }
-    if (todayMetricsResult.status === 'fulfilled') {
-      setManagementTodayMetrics(todayMetricsResult.value)
-      setManagementTodayMetricsAvailable(true)
-    } else {
-      setManagementTodayMetricsAvailable(false)
-      failures.push(
-        `Today's sent count: ${todayMetricsResult.reason?.message ?? todayMetricsResult.reason}`,
-      )
-    }
-    setManagementError(failures.length > 0 ? failures.join('  •  ') : null)
-    setManagementHealthLoaded(true)
-    setManagementLastUpdated(new Date())
-    setManagementLoading(false)
-  }, [])
+      const failures: string[] = []
+      if (accountsResult.status === 'fulfilled') {
+        if (accountsResult.value) setAccounts(accountsResult.value)
+      } else {
+        failures.push(
+          `Accounts: ${accountsResult.reason?.message ?? accountsResult.reason}`,
+        )
+      }
+      if (metricsResult.status === 'fulfilled') {
+        setManagementDomainMetrics(metricsResult.value)
+        setManagementMetricsAvailable(true)
+      } else {
+        failures.push(
+          `Domain health: ${metricsResult.reason?.message ?? metricsResult.reason}`,
+        )
+      }
+      setManagementError(failures.length > 0 ? failures.join('  •  ') : null)
+      setManagementHealthLoaded(true)
+      setManagementLastUpdated(new Date())
+      setManagementLoading(false)
+    },
+    [],
+  )
+
+  const refreshDomainManagement = useCallback(
+    () => loadDomainManagement(managementStartDate, managementEndDate, true),
+    [loadDomainManagement, managementEndDate, managementStartDate],
+  )
+
+  const applyManagementRange = useCallback(
+    () => loadDomainManagement(managementStartDate, managementEndDate, false),
+    [loadDomainManagement, managementEndDate, managementStartDate],
+  )
+
+  const applyManagementPreset = useCallback(
+    (days: 1 | 3 | 7) => {
+      const now = new Date()
+      const endDate = getIstDateOffset(0, now)
+      const startDate = getIstDateOffset(days - 1, now)
+      setManagementStartDate(startDate)
+      setManagementEndDate(endDate)
+      void loadDomainManagement(startDate, endDate, false)
+    },
+    [loadDomainManagement],
+  )
 
   const handleDomainSettingsUpdate = useCallback(
     async (request: DomainBulkUpdateRequest): Promise<string> => {
@@ -488,13 +503,6 @@ export default function App() {
         ? buildDomainHealthRows(managementDomainMetrics, accounts)
         : [],
     [accounts, managementDomainMetrics, managementMetricsAvailable],
-  )
-  const managementTodaySentByDomain = useMemo(
-    () =>
-      new Map(
-        managementTodayMetrics.map((metric) => [metric.domain, metric.sent]),
-      ),
-    [managementTodayMetrics],
   )
 
   const kpis = useMemo(() => {
@@ -773,10 +781,14 @@ export default function App() {
           <DomainManagementPage
             accounts={accounts}
             healthRows={managementHealthRows}
-            todaySentByDomain={managementTodaySentByDomain}
-            todaySentAvailable={managementTodayMetricsAvailable}
             loading={loading || managementLoading}
             error={managementError}
+            startDate={managementStartDate}
+            endDate={managementEndDate}
+            onStartDateChange={setManagementStartDate}
+            onEndDateChange={setManagementEndDate}
+            onApply={applyManagementRange}
+            onPreset={applyManagementPreset}
             onUpdate={handleDomainSettingsUpdate}
             onValidateDns={handleValidateDomainDns}
             onBulkReconnect={handleBulkReconnect}

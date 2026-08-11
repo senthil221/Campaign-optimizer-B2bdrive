@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react'
 import type {
   DomainBulkUpdateRequest,
   DomainHealthRow,
@@ -22,14 +29,25 @@ import { EmailProviderIcons } from './EmailProviderIcon'
 interface Props {
   accounts: EmailAccount[]
   healthRows: DomainHealthRow[]
-  todaySentByDomain: Map<string, number>
-  todaySentAvailable: boolean
   loading: boolean
   error: string | null
+  startDate: string
+  endDate: string
+  onStartDateChange: (value: string) => void
+  onEndDateChange: (value: string) => void
+  onApply: () => void
+  onPreset: (days: 1 | 3 | 7) => void
   onUpdate: (request: DomainBulkUpdateRequest) => Promise<string>
   onValidateDns: () => Promise<string>
   onBulkReconnect: () => Promise<string>
 }
+
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 
 const INPUT =
   'h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint focus:border-lime/60 disabled:cursor-not-allowed disabled:opacity-50'
@@ -41,7 +59,8 @@ type SortKey =
   | 'senderName'
   | 'ageDays'
   | 'dailyLimit'
-  | 'sentToday'
+  | 'sent'
+  | 'replyRate'
   | 'bounceRate'
   | 'avgWarmupReputation'
   | 'dnsStatus'
@@ -293,10 +312,14 @@ function ApplyButton({
 export default function DomainManagementPage({
   accounts,
   healthRows,
-  todaySentByDomain,
-  todaySentAvailable,
   loading,
   error,
+  startDate,
+  endDate,
+  onStartDateChange,
+  onEndDateChange,
+  onApply,
+  onPreset,
   onUpdate,
   onValidateDns,
   onBulkReconnect,
@@ -478,10 +501,15 @@ export default function DomainManagementPage({
       if (sortKey === 'dailyLimit') {
         comparison = (a.dailyLimit ?? a.dailyLimitMin) - (b.dailyLimit ?? b.dailyLimitMin)
       }
-      if (sortKey === 'sentToday') {
+      if (sortKey === 'sent') {
         comparison =
-          (todaySentAvailable ? todaySentByDomain.get(a.domain) ?? -1 : -1) -
-          (todaySentAvailable ? todaySentByDomain.get(b.domain) ?? -1 : -1)
+          (healthByDomain.get(a.domain)?.sent ?? -1) -
+          (healthByDomain.get(b.domain)?.sent ?? -1)
+      }
+      if (sortKey === 'replyRate') {
+        comparison =
+          (healthByDomain.get(a.domain)?.replyRate ?? -1) -
+          (healthByDomain.get(b.domain)?.replyRate ?? -1)
       }
       if (sortKey === 'bounceRate') {
         comparison =
@@ -511,8 +539,6 @@ export default function DomainManagementPage({
     sortDirection,
     sortKey,
     tagFilters,
-    todaySentByDomain,
-    todaySentAvailable,
     warmupFilters,
   ])
 
@@ -558,6 +584,30 @@ export default function DomainManagementPage({
       : null
   const filtersActive =
     tagFilters.size > 0 || warmupFilters.size > 0 || senderFilters.size > 0
+
+  const validRange = Boolean(startDate && endDate && startDate <= endDate)
+  const now = new Date()
+  const today = IST_DATE_FORMAT.format(now)
+  const threeDaysAgo = IST_DATE_FORMAT.format(
+    new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+  )
+  const sevenDaysAgo = IST_DATE_FORMAT.format(
+    new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+  )
+  const activePreset =
+    startDate === today && endDate === today
+      ? 'today'
+      : startDate === threeDaysAgo && endDate === today
+        ? '3d'
+        : startDate === sevenDaysAgo && endDate === today
+          ? '7d'
+          : null
+  const rangeLabel = startDate === endDate ? startDate : `${startDate} → ${endDate}`
+
+  const submitRange = (event: FormEvent) => {
+    event.preventDefault()
+    if (validRange && !loading) onApply()
+  }
 
   const clearFilters = () => {
     setTagFilters(new Set())
@@ -890,6 +940,70 @@ export default function DomainManagementPage({
           </div>
         </div>
 
+        <div className="flex flex-wrap items-end justify-between gap-3 border-t border-line px-4 py-3">
+          <p className="text-[11px] text-muted">
+            Sent, reply rate, and bounce rate for{' '}
+            <span className="font-medium text-ink">{rangeLabel}</span>
+          </p>
+          <form onSubmit={submitRange} className="flex flex-wrap items-end gap-2">
+            <div>
+              <span className={LABEL}>Quick range</span>
+              <div className="flex h-9 overflow-hidden rounded-lg border border-line bg-panel-2 p-0.5">
+                {([
+                  ['Today', 1, 'today'],
+                  ['3D', 3, '3d'],
+                  ['7D', 7, '7d'],
+                ] as const).map(([label, days, key]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => onPreset(days)}
+                    className={`rounded-md px-3 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      activePreset === key
+                        ? 'bg-lime-fill text-[#18200c] shadow-sm'
+                        : 'text-muted hover:bg-panel hover:text-ink'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="block">
+              <span className={LABEL}>Start date</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(event) => onStartDateChange(event.target.value)}
+                className="h-9 rounded-lg border border-line bg-panel-2 px-3 text-[12px] font-medium text-ink outline-none transition focus:border-lime/60"
+              />
+            </label>
+            <label className="block">
+              <span className={LABEL}>End date</span>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate}
+                onChange={(event) => onEndDateChange(event.target.value)}
+                className="h-9 rounded-lg border border-line bg-panel-2 px-3 text-[12px] font-medium text-ink outline-none transition focus:border-lime/60"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!validRange || loading}
+              className="h-9 rounded-lg bg-lime-fill px-4 text-[12px] font-semibold text-[#18200c] shadow-glow transition hover:bg-lime-fill-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? 'Loading…' : 'Apply'}
+            </button>
+          </form>
+        </div>
+
+        {!validRange && (
+          <div className="border-t border-critical/20 bg-critical/10 px-4 py-2 text-[11px] text-critical">
+            End date must be on or after the start date.
+          </div>
+        )}
         {(error || operationError) && (
           <div className="border-t border-critical/20 bg-critical/10 px-4 py-2 text-[11px] text-critical">
             <span className="font-semibold">Could not complete the request.</span>{' '}
@@ -919,8 +1033,11 @@ export default function DomainManagementPage({
             <span className="tnum rounded-md bg-panel-2 px-2 py-0.5 text-[10px] text-muted">
               {visibleRows.length}/{rows.length}
             </span>
-            <span className="rounded-md border border-lime/20 bg-lime/[0.07] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-lime">
-              Health: latest 3D
+            <span
+              className="rounded-md border border-lime/20 bg-lime/[0.07] px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-lime"
+              title={`Sent, reply rate, and bounce rate for ${rangeLabel}`}
+            >
+              Health: {activePreset ? activePreset.toUpperCase() : rangeLabel}
             </span>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1035,8 +1152,9 @@ export default function DomainManagementPage({
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Tags</th>
                   <SortHeader label="Domain age" sortKey="ageDays" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Daily limit" sortKey="dailyLimit" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
-                  <SortHeader label="Sent today" sortKey="sentToday" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
-                  <SortHeader label="Bounce rate (3D)" sortKey="bounceRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Sent" sortKey="sent" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Reply rate" sortKey="replyRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
+                  <SortHeader label="Bounce rate" sortKey="bounceRate" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="Avg warmup" sortKey="avgWarmupReputation" activeKey={sortKey} direction={sortDirection} onSort={sortBy} align="right" />
                   <SortHeader label="DNS validation" sortKey="dnsStatus" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Connected" sortKey="connected" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
@@ -1047,9 +1165,6 @@ export default function DomainManagementPage({
                 {visibleRows.map((row) => {
                   const isSelected = selected.has(row.domain)
                   const health = healthByDomain.get(row.domain)
-                  const sentToday = todaySentAvailable
-                    ? todaySentByDomain.get(row.domain) ?? 0
-                    : null
                   return (
                     <tr
                       key={row.domain}
@@ -1121,12 +1236,19 @@ export default function DomainManagementPage({
                           row.dailyLimit.toLocaleString()
                         )}
                       </td>
+                      <td className="tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold text-ink">
+                        {health ? health.sent.toLocaleString() : '—'}
+                      </td>
                       <td
                         className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
-                          sentToday === null ? 'text-faint' : 'text-positive'
+                          !health
+                            ? 'text-faint'
+                            : health.replyRate > 0
+                              ? 'text-positive'
+                              : 'text-faint'
                         }`}
                       >
-                        {sentToday === null ? '—' : sentToday.toLocaleString()}
+                        {health ? `${health.replyRate.toFixed(2)}%` : '—'}
                       </td>
                       <td
                         className={`tnum whitespace-nowrap px-2.5 py-2 text-right text-[11px] font-semibold ${
