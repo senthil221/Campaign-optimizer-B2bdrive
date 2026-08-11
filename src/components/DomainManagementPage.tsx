@@ -894,13 +894,22 @@ export default function DomainManagementPage({
         >
           <span
             aria-hidden="true"
-            className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${
+            className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full ${
               notice.type === 'error' ? 'bg-critical/15' : 'bg-positive/15'
             }`}
           >
             {notice.type === 'error' ? '!' : '✓'}
           </span>
-          <span className="pt-0.5">{notice.message}</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-semibold">
+              {notice.type === 'error' ? 'Update failed' : 'Successfully updated'}
+            </div>
+            {notice.message && (
+              <div className="mt-0.5 text-[10px] font-normal text-muted">
+                {notice.message}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setNotice(null)}
