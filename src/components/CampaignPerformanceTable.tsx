@@ -410,6 +410,9 @@ function SequenceBreakdown({
         <tbody>
           {rows.map((s) => {
             const label = `${s.seqNumber}. Email${s.variantLabel ? ` – ${s.variantLabel}` : ''}`
+            // "Bounced" is recipient/list bounce only — sender bounces are shown
+            // separately so infra issues stand out (matches Smartlead's split).
+            const recipientBounced = Math.max(0, s.bounced - s.senderBounced)
             return (
               <tr key={s.id} className="border-b border-line-soft last:border-0">
                 <td className={`${SD} font-medium text-ink`}>{label}</td>
@@ -438,10 +441,10 @@ function SequenceBreakdown({
                   <span className="text-[10px] font-medium text-faint">({fmt(s.positiveReplies)})</span>
                 </td>
                 <td className={`${SD} text-right`}>
-                  <span className={`text-[13px] font-semibold ${ratio(s.bounced, s.sent) > 3 ? 'text-critical' : 'text-faint'}`}>
-                    {pct(ratio(s.bounced, s.sent))}
+                  <span className={`text-[13px] font-semibold ${ratio(recipientBounced, s.sent) > 3 ? 'text-critical' : 'text-faint'}`}>
+                    {pct(ratio(recipientBounced, s.sent))}
                   </span>{' '}
-                  <span className="text-[10px] font-medium text-faint">({fmt(s.bounced)})</span>
+                  <span className="text-[10px] font-medium text-faint">({fmt(recipientBounced)})</span>
                 </td>
                 <td
                   className={`${SD} text-right font-semibold ${

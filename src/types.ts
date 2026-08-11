@@ -420,8 +420,9 @@ export interface CampaignPerformance {
   positiveRate: number
   /** Positive rate × 100 (e.g. 0.21% → 21%). */
   leadRate: number
+  /** Recipient/list bounces only: total bounce_count minus sender bounces. */
   bounced: number
-  /** bounced ÷ sent × 100. */
+  /** recipient bounced ÷ sent × 100. */
   bounceRate: number
   /** Sender-side bounces (the sending mailbox itself bounced). */
   senderBounced: number

@@ -409,10 +409,18 @@ export function buildCampaignPerformance(
         interested,
         positiveRate,
         leadRate,
-        bounced: c.bounceCount,
-        bounceRate: rate(c.bounceCount, c.sentCount),
+        // Smartlead's bounce_count is the TOTAL, which includes sender-side
+        // bounces. Split them the way Smartlead's own UI does: "Bounced" is the
+        // recipient/list bounce (total − sender), and sender bounces are their
+        // own metric — so a high sender-bounce % clearly flags an infra issue
+        // instead of being buried inside the total.
         senderBounced: c.leadStats.senderBounced,
         senderBounceRate: rate(c.leadStats.senderBounced, c.sentCount),
+        bounced: Math.max(0, c.bounceCount - c.leadStats.senderBounced),
+        bounceRate: rate(
+          Math.max(0, c.bounceCount - c.leadStats.senderBounced),
+          c.sentCount,
+        ),
         maxLeadsPerDay: c.maxLeadsPerDay,
       }
     })

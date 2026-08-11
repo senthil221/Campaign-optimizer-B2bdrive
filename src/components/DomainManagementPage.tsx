@@ -342,7 +342,10 @@ export default function DomainManagementPage({
   const [pasteMode, setPasteMode] = useState<'add' | 'remove'>('add')
   const [busy, setBusy] = useState<DomainSettingsAction | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{
+    message: string
+    type: 'success' | 'error'
+  } | null>(null)
   const [tags, setTags] = useState('')
   const [messagePerDay, setMessagePerDay] = useState(9)
   const [minTimeToWaitInMins, setMinTimeToWaitInMins] = useState(60)
@@ -391,7 +394,11 @@ export default function DomainManagementPage({
 
   useEffect(() => {
     if (!notice) return
-    const timeout = window.setTimeout(() => setNotice(null), 2000)
+    // Errors linger longer so they're readable before auto-dismissing.
+    const timeout = window.setTimeout(
+      () => setNotice(null),
+      notice.type === 'error' ? 5000 : 2500,
+    )
     return () => window.clearTimeout(timeout)
   }, [notice])
 
@@ -692,23 +699,6 @@ export default function DomainManagementPage({
     })
   }
 
-  const resetAfterSuccessfulUpdate = () => {
-    selectionAnchorRef.current = null
-    setSelected(new Set())
-    clearFilters()
-    setPasteOpen(false)
-    setPastedDomains('')
-    setPasteMode('add')
-    setTags('')
-    setMessagePerDay(9)
-    setMinTimeToWaitInMins(60)
-    setWarmupMax(5)
-    setWarmupRamp(1)
-    setWarmupReplyRate(60)
-    setWarmupTag('hey-there')
-    setRampupEnabled(true)
-  }
-
   const runUpdate = async (
     action: DomainSettingsAction,
     extra: Pick<DomainBulkUpdateRequest, 'tags' | 'settings'>,
@@ -724,8 +714,10 @@ export default function DomainManagementPage({
         accounts: selectedAccounts,
         ...extra,
       })
-      setNotice(message)
-      resetAfterSuccessfulUpdate()
+      setNotice({ message, type: 'success' })
+      // Selection and filters are intentionally left intact so several changes
+      // can be applied to the same domains without re-selecting them. Use
+      // "Clear selection" when done.
     } catch (updateError) {
       const message =
         updateError instanceof Error ? updateError.message : String(updateError)
@@ -750,6 +742,7 @@ export default function DomainManagementPage({
         }
       }
       setOperationError(displayMessage)
+      setNotice({ message: displayMessage, type: 'error' })
     } finally {
       setBusy(null)
     }
@@ -761,13 +754,14 @@ export default function DomainManagementPage({
     setOperationError(null)
     setNotice(null)
     try {
-      setNotice(await onValidateDns())
+      setNotice({ message: await onValidateDns(), type: 'success' })
     } catch (validationError) {
-      setOperationError(
+      const message =
         validationError instanceof Error
           ? validationError.message
-          : String(validationError),
-      )
+          : String(validationError)
+      setOperationError(message)
+      setNotice({ message, type: 'error' })
     } finally {
       setDnsValidating(false)
     }
@@ -779,13 +773,14 @@ export default function DomainManagementPage({
     setOperationError(null)
     setNotice(null)
     try {
-      setNotice(await onBulkReconnect())
+      setNotice({ message: await onBulkReconnect(), type: 'success' })
     } catch (reconnectError) {
-      setOperationError(
+      const message =
         reconnectError instanceof Error
           ? reconnectError.message
-          : String(reconnectError),
-      )
+          : String(reconnectError)
+      setOperationError(message)
+      setNotice({ message, type: 'error' })
     } finally {
       setBulkReconnecting(false)
     }
@@ -890,16 +885,30 @@ export default function DomainManagementPage({
     <div className="space-y-4">
       {notice && (
         <div
-          role="status"
-          className="fixed bottom-5 right-5 z-[110] flex max-w-[min(420px,calc(100vw-40px))] items-center gap-2 rounded-xl border border-positive/25 bg-panel px-4 py-3 text-[11px] font-medium text-positive shadow-2xl shadow-black/40"
+          role={notice.type === 'error' ? 'alert' : 'status'}
+          className={`fixed bottom-5 right-5 z-[110] flex max-w-[min(420px,calc(100vw-40px))] items-start gap-2 rounded-xl border bg-panel px-4 py-3 text-[11px] font-medium shadow-2xl shadow-black/40 ${
+            notice.type === 'error'
+              ? 'border-critical/30 text-critical'
+              : 'border-positive/25 text-positive'
+          }`}
         >
           <span
             aria-hidden="true"
-            className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-positive/15"
+            className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${
+              notice.type === 'error' ? 'bg-critical/15' : 'bg-positive/15'
+            }`}
           >
-            ✓
+            {notice.type === 'error' ? '!' : '✓'}
           </span>
-          <span>{notice}</span>
+          <span className="pt-0.5">{notice.message}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss notification"
+            className="ml-1 shrink-0 text-[13px] leading-none text-muted transition hover:text-ink"
+          >
+            ×
+          </button>
         </div>
       )}
       <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
