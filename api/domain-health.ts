@@ -7,6 +7,8 @@ const MAX_PAGES = 50
 const MAX_RANGE_DAYS = 31
 const CAMPAIGN_BOUNCE_PAGE_LIMIT = 500
 const MAX_CAMPAIGN_BOUNCE_PAGES = 100
+const BLACKLIST_CONCURRENCY = 8
+const BLACKLIST_MAX_CAMPAIGNS = 500
 
 type RiskCategory = 'tenant_threshold' | 'spam_rejected' | 'sender_550'
 
@@ -414,12 +416,161 @@ async function handleCampaignListBounces(
   }
 }
 
+interface BlacklistListing {
+  target: 'domain' | 'ip'
+  rblName: string
+  rblWebsite: string
+  reason: string
+}
+
+interface DomainBlacklistStatus {
+  domain: string
+  ip: string | null
+  domainBlacklistCount: number
+  ipBlacklistCount: number
+  totalTests: number
+  listings: BlacklistListing[]
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function toBlacklistListings(
+  rows: unknown[],
+  target: 'domain' | 'ip',
+): BlacklistListing[] {
+  return rows.map((row) => {
+    const r = objectValue(row)
+    return {
+      target,
+      rblName: String(r.rbl_name ?? ''),
+      rblWebsite: String(r.rbl_website ?? ''),
+      reason: String(r.reason ?? ''),
+    }
+  })
+}
+
+/**
+ * Aggregate RBL/DNSBL blacklist status per sending domain across campaigns.
+ * Smartlead exposes this per campaign, and each campaign response lists all of
+ * its connected sending domains, so the client sends small chunks of campaign
+ * IDs and we dedupe by domain (first writer wins — status is domain/IP-level).
+ */
+async function handleCampaignBlacklist(
+  req: VercelRequest,
+  res: VercelResponse,
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed. Use POST.' })
+  }
+
+  const jwt =
+    process.env.SMARTLEAD_JWT ||
+    (req.headers['x-smartlead-jwt'] as string) ||
+    ''
+  if (!jwt) {
+    return res.status(400).json({
+      error:
+        'No Smartlead JWT configured. Set SMARTLEAD_JWT in Vercel Settings.',
+    })
+  }
+
+  const body = objectValue(req.body)
+  const campaignIds = Array.from(
+    new Set(
+      arrayValue(body.campaignIds)
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
+  ).slice(0, BLACKLIST_MAX_CAMPAIGNS)
+  if (campaignIds.length === 0) {
+    return res
+      .status(400)
+      .json({ error: 'Body must include a non-empty campaignIds array.' })
+  }
+
+  const byDomain = new Map<string, DomainBlacklistStatus>()
+  const failures: number[] = []
+  let cursor = 0
+
+  async function worker(): Promise<void> {
+    while (cursor < campaignIds.length) {
+      const id = campaignIds[cursor++]
+      try {
+        const upstream = await fetch(
+          `${SMARTLEAD_BASE}/api/email-campaigns/${id}/black-list-domains`,
+          { method: 'GET', headers: { Authorization: `Bearer ${jwt}` } },
+        )
+        if (!upstream.ok) {
+          failures.push(id)
+          continue
+        }
+        const json = JSON.parse(await upstream.text()) as unknown
+        for (const entry of arrayValue(json)) {
+          const domainInfo = objectValue(objectValue(entry).domain)
+          const domain = String(domainInfo.domain ?? '')
+            .trim()
+            .toLowerCase()
+          if (!domain || byDomain.has(domain)) continue
+
+          const ipInfo = objectValue(objectValue(entry).ip)
+          const summary = objectValue(domainInfo.summary)
+          const domainListings = arrayValue(domainInfo.blacklisted)
+          const ipListings = arrayValue(ipInfo.blacklisted)
+
+          byDomain.set(domain, {
+            domain,
+            ip: ipInfo.ip
+              ? String(ipInfo.ip)
+              : summary.ip
+                ? String(summary.ip)
+                : null,
+            domainBlacklistCount: domainListings.length,
+            ipBlacklistCount: ipListings.length,
+            totalTests: Number(summary.totalTests) || domainListings.length,
+            listings: [
+              ...toBlacklistListings(domainListings, 'domain'),
+              ...toBlacklistListings(ipListings, 'ip'),
+            ],
+          })
+        }
+      } catch {
+        failures.push(id)
+      }
+    }
+  }
+
+  try {
+    await Promise.all(
+      Array.from(
+        { length: Math.min(BLACKLIST_CONCURRENCY, campaignIds.length) },
+        worker,
+      ),
+    )
+  } catch (error) {
+    return res.status(502).json({
+      error: `Blacklist proxy failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    })
+  }
+
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  return res
+    .status(200)
+    .json({ domains: Array.from(byDomain.values()), failures })
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const mode = Array.isArray(req.query.mode)
     ? req.query.mode[0]
     : req.query.mode
   if (mode === 'campaign-list-bounces') {
     return handleCampaignListBounces(req, res)
+  }
+  if (mode === 'blacklist') {
+    return handleCampaignBlacklist(req, res)
   }
 
   if (req.method !== 'GET') {

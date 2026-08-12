@@ -43,7 +43,7 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
-const CAMPAIGN_BLACKLIST_URL = '/api/campaign-blacklist'
+const CAMPAIGN_BLACKLIST_URL = '/api/domain-health?mode=blacklist'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
 const TAG_MANAGER_URL = '/api/email-accounts?mode=tags'
 const BULK_SYNC_URL = '/api/email-accounts'
