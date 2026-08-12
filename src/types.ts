@@ -192,6 +192,32 @@ export interface DomainHealthMetric {
   bounceRate: number
 }
 
+/** One RBL/DNSBL that reported the sending domain or its IP. */
+export interface DomainBlacklistListing {
+  /** Whether the listing is against the sending domain or its sending IP. */
+  target: 'domain' | 'ip'
+  rblName: string
+  rblWebsite: string
+  reason: string
+}
+
+/**
+ * A sending domain's RBL/DNSBL blacklist status, aggregated from Smartlead's
+ * per-campaign black-list-domains endpoint (deduped across campaigns).
+ */
+export interface DomainBlacklistStatus {
+  domain: string
+  /** Sending IP the domain resolves to, when reported. */
+  ip: string | null
+  /** Number of RBLs listing the domain itself. */
+  domainBlacklistCount: number
+  /** Number of RBLs listing the sending IP. */
+  ipBlacklistCount: number
+  /** Total RBLs checked for the domain. */
+  totalTests: number
+  listings: DomainBlacklistListing[]
+}
+
 export type BounceRiskCategory =
   | 'tenant_threshold'
   | 'spam_rejected'

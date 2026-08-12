@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from 'react'
 import type {
+  DomainBlacklistStatus,
   DomainBulkUpdateRequest,
   DomainHealthRow,
   DomainOutboundSettings,
@@ -29,6 +30,9 @@ import { EmailProviderIcons } from './EmailProviderIcon'
 interface Props {
   accounts: EmailAccount[]
   healthRows: DomainHealthRow[]
+  blacklist: Map<string, DomainBlacklistStatus>
+  blacklistLoading: boolean
+  blacklistError: string | null
   loading: boolean
   error: string | null
   startDate: string
@@ -66,8 +70,9 @@ type SortKey =
   | 'avgWarmupReputation'
   | 'dnsStatus'
   | 'connected'
+  | 'blacklist'
 type SortDirection = 'asc' | 'desc'
-type OpenFilter = 'tags' | 'warmup' | 'sender' | null
+type OpenFilter = 'tags' | 'warmup' | 'sender' | 'blacklist' | null
 
 interface FilterOption {
   value: string
@@ -261,6 +266,77 @@ function WarmupBadge({
   )
 }
 
+function blacklistTotal(status: DomainBlacklistStatus): number {
+  return status.domainBlacklistCount + status.ipBlacklistCount
+}
+
+function BlacklistBadge({
+  status,
+  loading,
+}: {
+  status: DomainBlacklistStatus | undefined
+  loading: boolean
+}) {
+  if (!status) {
+    return (
+      <span className="text-[10px] text-faint" title={
+        loading
+          ? 'Checking blacklists…'
+          : 'No blacklist data — domain is not connected to a scanned campaign'
+      }>
+        {loading ? 'Checking…' : '—'}
+      </span>
+    )
+  }
+
+  const total = blacklistTotal(status)
+  if (total === 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-positive/10 px-2 py-1 text-[10px] font-medium text-positive ring-1 ring-inset ring-positive/25"
+        title={`Clean — ${status.totalTests} RBL${
+          status.totalTests === 1 ? '' : 's'
+        } checked${status.ip ? ` · IP ${status.ip}` : ''}`}
+      >
+        ✓ Clean
+      </span>
+    )
+  }
+
+  const parts: string[] = []
+  if (status.domainBlacklistCount > 0) {
+    parts.push(
+      `Domain listed on ${status.domainBlacklistCount} RBL${
+        status.domainBlacklistCount === 1 ? '' : 's'
+      }`,
+    )
+  }
+  if (status.ipBlacklistCount > 0) {
+    parts.push(
+      `IP${status.ip ? ` ${status.ip}` : ''} listed on ${
+        status.ipBlacklistCount
+      } RBL${status.ipBlacklistCount === 1 ? '' : 's'}`,
+    )
+  }
+  const rblNames = Array.from(
+    new Set(status.listings.map((listing) => listing.rblName).filter(Boolean)),
+  )
+  const title = `${parts.join(' · ')}${
+    rblNames.length > 0 ? `\n${rblNames.join(', ')}` : ''
+  }`
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border border-critical/25 bg-critical/10 px-2 py-0.5 text-[10px] font-semibold text-critical"
+      title={title}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      Blacklisted
+      <span className="tnum">({total})</span>
+    </span>
+  )
+}
+
 function SettingsCard({
   title,
   children,
@@ -313,6 +389,9 @@ function ApplyButton({
 export default function DomainManagementPage({
   accounts,
   healthRows,
+  blacklist,
+  blacklistLoading,
+  blacklistError,
   loading,
   error,
   startDate,
@@ -331,6 +410,9 @@ export default function DomainManagementPage({
     () => new Set(),
   )
   const [senderFilters, setSenderFilters] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const [blacklistFilters, setBlacklistFilters] = useState<Set<string>>(
     () => new Set(),
   )
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
@@ -456,6 +538,12 @@ export default function DomainManagementPage({
     { value: 'disabled', label: 'Disabled' },
     { value: 'mixed', label: 'Mixed' },
   ]
+  const blacklistFilterOptions: FilterOption[] = [
+    { value: 'all', label: 'All' },
+    { value: 'blacklisted', label: 'Blacklisted' },
+    { value: 'clean', label: 'Clean' },
+    { value: 'unknown', label: 'Not checked' },
+  ]
   const invalidDomainAccounts = useMemo(
     () =>
       accounts.filter(
@@ -488,6 +576,15 @@ export default function DomainManagementPage({
         )
       )
         return false
+      if (blacklistFilters.size > 0) {
+        const status = blacklist.get(row.domain)
+        const category = !status
+          ? 'unknown'
+          : blacklistTotal(status) > 0
+            ? 'blacklisted'
+            : 'clean'
+        if (!blacklistFilters.has(category)) return false
+      }
       return true
     })
 
@@ -546,10 +643,19 @@ export default function DomainManagementPage({
       if (sortKey === 'connected') {
         comparison = a.connectedCount / a.accountCount - b.connectedCount / b.accountCount
       }
+      if (sortKey === 'blacklist') {
+        const aStatus = blacklist.get(a.domain)
+        const bStatus = blacklist.get(b.domain)
+        comparison =
+          (aStatus ? blacklistTotal(aStatus) : -1) -
+          (bStatus ? blacklistTotal(bStatus) : -1)
+      }
       if (comparison === 0) comparison = a.domain.localeCompare(b.domain)
       return sortDirection === 'asc' ? comparison : -comparison
     })
   }, [
+    blacklist,
+    blacklistFilters,
     healthByDomain,
     rows,
     senderFilters,
@@ -600,7 +706,10 @@ export default function DomainManagementPage({
         )
       : null
   const filtersActive =
-    tagFilters.size > 0 || warmupFilters.size > 0 || senderFilters.size > 0
+    tagFilters.size > 0 ||
+    warmupFilters.size > 0 ||
+    senderFilters.size > 0 ||
+    blacklistFilters.size > 0
 
   const validRange = Boolean(startDate && endDate && startDate <= endDate)
   const now = new Date()
@@ -630,6 +739,7 @@ export default function DomainManagementPage({
     setTagFilters(new Set())
     setWarmupFilters(new Set())
     setSenderFilters(new Set())
+    setBlacklistFilters(new Set())
     setOpenFilter(null)
   }
 
@@ -1051,6 +1161,12 @@ export default function DomainManagementPage({
             . These accounts were excluded.
           </div>
         )}
+        {blacklistError && (
+          <div className="border-t border-warn/20 bg-warn/[0.08] px-4 py-2 text-[11px] text-warn">
+            <span className="font-semibold">Blacklist status unavailable:</span>{' '}
+            {blacklistError}
+          </div>
+        )}
       </section>
 
       <section className="animate-rise overflow-hidden rounded-xl border border-line bg-panel shadow-panel">
@@ -1113,6 +1229,23 @@ export default function DomainManagementPage({
                 )
               }
             />
+            <FilterMenu
+              label="Blacklist"
+              values={blacklistFilters}
+              options={blacklistFilterOptions}
+              open={openFilter === 'blacklist'}
+              onToggle={() =>
+                setOpenFilter((current) =>
+                  current === 'blacklist' ? null : 'blacklist',
+                )
+              }
+              onClose={() => setOpenFilter(null)}
+              onToggleValue={(value) =>
+                setBlacklistFilters((current) =>
+                  toggledFilterValues(current, value),
+                )
+              }
+            />
             <button
               type="button"
               onClick={() => {
@@ -1163,7 +1296,7 @@ export default function DomainManagementPage({
           </div>
         ) : (
           <div className="max-h-[520px] overflow-auto overscroll-contain">
-            <table className="w-full min-w-[1450px] border-collapse">
+            <table className="w-full min-w-[1580px] border-collapse">
               <thead className="sticky top-0 z-10 bg-panel">
                 <tr className="border-b border-line text-left">
                   <th className="w-11 px-4 py-2">
@@ -1187,6 +1320,7 @@ export default function DomainManagementPage({
                   <SortHeader label="DNS validation" sortKey="dnsStatus" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <SortHeader label="Connected" sortKey="connected" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                   <th className="whitespace-nowrap px-2.5 py-2.5 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-muted/80">Warmup status</th>
+                  <SortHeader label="Blacklisted" sortKey="blacklist" activeKey={sortKey} direction={sortDirection} onSort={sortBy} />
                 </tr>
               </thead>
               <tbody>
@@ -1336,6 +1470,12 @@ export default function DomainManagementPage({
                           state={row.warmupState}
                           enabled={row.warmupEnabledCount}
                           total={row.accountCount}
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-2.5 py-2">
+                        <BlacklistBadge
+                          status={blacklist.get(row.domain)}
+                          loading={blacklistLoading}
                         />
                       </td>
                     </tr>

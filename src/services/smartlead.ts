@@ -9,6 +9,7 @@ import type {
   CampaignSequencePayload,
   EditableSequence,
   EditableVariant,
+  DomainBlacklistStatus,
   DomainBounceRisk,
   DomainBulkUpdateRequest,
   DomainHealthMetric,
@@ -42,6 +43,7 @@ const CAMPAIGN_STATUS_URL = '/api/campaign-status'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
+const CAMPAIGN_BLACKLIST_URL = '/api/campaign-blacklist'
 const DOMAIN_SETTINGS_URL = EMAIL_ACCOUNTS_URL
 const TAG_MANAGER_URL = '/api/email-accounts?mode=tags'
 const BULK_SYNC_URL = '/api/email-accounts'
@@ -735,6 +737,75 @@ export async function fetchDomainBounceRisks(
       }
     })
     .filter((row): row is DomainBounceRisk => row !== null)
+}
+
+// Small chunks keep each serverless request short and let the caller stop
+// early once every target domain has a status (see fetchBlacklistedDomains).
+const BLACKLIST_CHUNK = 8
+
+/**
+ * Aggregate RBL/DNSBL blacklist status per sending domain across campaigns.
+ * Smartlead only exposes this per campaign, and each campaign response lists
+ * all of its connected domains, so we sweep campaigns in small chunks and
+ * dedupe by domain. When `targetDomains` is provided, the sweep stops as soon
+ * as all of them are covered — usually after the first chunk or two.
+ * Best-effort: a failed chunk is skipped; an error is only thrown when nothing
+ * at all could be collected.
+ */
+export async function fetchBlacklistedDomains(
+  jwt: string,
+  campaignIds: number[],
+  targetDomains?: string[],
+): Promise<Map<string, DomainBlacklistStatus>> {
+  const out = new Map<string, DomainBlacklistStatus>()
+  const ids = Array.from(
+    new Set(campaignIds.filter((id) => Number.isInteger(id) && id > 0)),
+  )
+  if (ids.length === 0) return out
+
+  const missing = new Set((targetDomains ?? []).map((d) => d.toLowerCase()))
+  const earlyStop = missing.size > 0
+  let lastError: string | null = null
+
+  for (const batch of chunk(ids, BLACKLIST_CHUNK)) {
+    const res = await fetch(CAMPAIGN_BLACKLIST_URL, {
+      method: 'POST',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({ campaignIds: batch }),
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      try {
+        lastError =
+          (JSON.parse(text) as { error?: string }).error ||
+          `Blacklist request failed (${res.status} ${res.statusText}).`
+      } catch {
+        lastError = `Blacklist request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`
+      }
+      continue
+    }
+
+    let json: { domains?: DomainBlacklistStatus[] } = {}
+    try {
+      json = JSON.parse(text) as typeof json
+    } catch {
+      lastError = `Blacklist response was not valid JSON: ${preview(text)}`
+      continue
+    }
+
+    for (const status of json.domains ?? []) {
+      const domain = String(status.domain ?? '').trim().toLowerCase()
+      if (!domain || out.has(domain)) continue
+      out.set(domain, status)
+      missing.delete(domain)
+    }
+
+    if (earlyStop && missing.size === 0) break
+    await delay(REQUEST_DELAY_MS)
+  }
+
+  if (out.size === 0 && lastError) throw new Error(lastError)
+  return out
 }
 
 async function fetchSequenceInvalidBounceCounts(

@@ -5,6 +5,7 @@ import type {
   BulkSyncResult,
   Campaign,
   CampaignTagMap,
+  DomainBlacklistStatus,
   DomainBounceRisk,
   DomainBulkUpdateRequest,
   DomainHealthMetric,
@@ -20,6 +21,7 @@ import {
   fetchTagSendPerformance,
   previewBulkSync,
   bulkReconnectEmailAccounts,
+  fetchBlacklistedDomains,
   fetchSequenceEditor,
   loadCampaigns,
   saveSequenceEdit,
@@ -62,6 +64,7 @@ import DomainHealthPage from './components/DomainHealthPage'
 import DomainManagementPage from './components/DomainManagementPage'
 import BulkSyncModal from './components/BulkSyncModal'
 import { buildDomainHealthRows } from './utils/domainHealth'
+import { domainFromEmail, isValidDomain } from './utils/domainManagement'
 
 // Default: every column visible. Stored prefs are merged over this so a newly
 // added column shows up by default for existing users.
@@ -194,6 +197,12 @@ export default function App() {
   const [managementError, setManagementError] = useState<string | null>(null)
   const [managementLastUpdated, setManagementLastUpdated] =
     useState<Date | null>(null)
+  const [blacklistByDomain, setBlacklistByDomain] = useState<
+    Map<string, DomainBlacklistStatus>
+  >(() => new Map())
+  const [blacklistLoading, setBlacklistLoading] = useState(false)
+  const [blacklistLoaded, setBlacklistLoaded] = useState(false)
+  const [blacklistError, setBlacklistError] = useState<string | null>(null)
   const [bulkSyncSelection, setBulkSyncSelection] =
     useState<BulkSyncSelection | null>(null)
   const [bulkSyncPreviews, setBulkSyncPreviews] = useState<
@@ -211,6 +220,13 @@ export default function App() {
   useEffect(() => {
     campaignsRef.current = campaigns
   }, [campaigns])
+
+  // Latest accounts, so the blacklist sweep can read live domains without
+  // re-creating its callback on every account refresh.
+  const accountsRef = useRef<EmailAccount[]>([])
+  useEffect(() => {
+    accountsRef.current = accounts
+  }, [accounts])
 
   // Persist user settings
   useEffect(() => saveEmailsPerLead(emailsPerLead), [emailsPerLead])
@@ -404,6 +420,45 @@ export default function App() {
     [loadDomainManagement],
   )
 
+  // Sweep campaigns for per-domain RBL/DNSBL blacklist status. Reads the latest
+  // campaigns + accounts from refs, and passes the managed domains as targets
+  // so the service can stop once every one of them has a status.
+  const loadBlacklist = useCallback(async () => {
+    const campaignIds = campaignsRef.current.map((c) => c.campaignId)
+    if (campaignIds.length === 0) return
+    const targetDomains = Array.from(
+      new Set(
+        accountsRef.current
+          .map((account) => domainFromEmail(account.fromEmail))
+          .filter(isValidDomain),
+      ),
+    )
+    setBlacklistLoading(true)
+    setBlacklistError(null)
+    try {
+      const result = await fetchBlacklistedDomains(
+        '',
+        campaignIds,
+        targetDomains,
+      )
+      setBlacklistByDomain(result)
+      setBlacklistLoaded(true)
+    } catch (error) {
+      setBlacklistError(
+        error instanceof Error ? error.message : String(error),
+      )
+    } finally {
+      setBlacklistLoading(false)
+    }
+  }, [])
+
+  // The Domain Management refresh button reloads health metrics/accounts and
+  // re-sweeps blacklist status together.
+  const refreshDomainManagementAll = useCallback(() => {
+    void loadBlacklist()
+    return refreshDomainManagement()
+  }, [loadBlacklist, refreshDomainManagement])
+
   const handleDomainSettingsUpdate = useCallback(
     async (request: DomainBulkUpdateRequest): Promise<string> => {
       const result = await updateDomainSettings('', request)
@@ -489,6 +544,28 @@ export default function App() {
     managementHealthLoaded,
     managementLoading,
     refreshDomainManagement,
+  ])
+
+  // Blacklist status needs both the campaign list (to sweep) and accounts (to
+  // know when every managed domain is covered), so it waits for both before the
+  // first sweep. Runs once per visit; the Refresh button re-runs it explicitly.
+  useEffect(() => {
+    if (
+      activePage === 'domain-management' &&
+      !blacklistLoaded &&
+      !blacklistLoading &&
+      campaigns.length > 0 &&
+      accounts.length > 0
+    ) {
+      void loadBlacklist()
+    }
+  }, [
+    accounts.length,
+    activePage,
+    blacklistLoaded,
+    blacklistLoading,
+    campaigns.length,
+    loadBlacklist,
   ])
 
   // ---- Derived data (calculations kept out of the components) ----
@@ -713,7 +790,7 @@ export default function App() {
             ? refresh
             : activePage === 'domains'
               ? refreshDomainHealth
-              : refreshDomainManagement
+              : refreshDomainManagementAll
         }
         onBulkSync={() => void handleBulkSyncPreview()}
         bulkSyncLoading={bulkSyncLoading || bulkSyncExecuting}
@@ -804,6 +881,9 @@ export default function App() {
           <DomainManagementPage
             accounts={accounts}
             healthRows={managementHealthRows}
+            blacklist={blacklistByDomain}
+            blacklistLoading={blacklistLoading}
+            blacklistError={blacklistError}
             loading={loading || managementLoading}
             error={managementError}
             startDate={managementStartDate}
