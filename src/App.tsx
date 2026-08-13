@@ -21,6 +21,7 @@ import {
   fetchTagSendPerformance,
   previewBulkSync,
   bulkReconnectEmailAccounts,
+  bulkDeleteEmailAccounts,
   fetchBlacklistedDomains,
   fetchSequenceEditor,
   loadCampaigns,
@@ -501,6 +502,29 @@ export default function App() {
     return message
   }, [])
 
+  const handleDeleteInboxes = useCallback(
+    async (emailAccountIds: number[]): Promise<string> => {
+      const message = await bulkDeleteEmailAccounts('', emailAccountIds)
+      setManagementLoading(true)
+      setManagementError(null)
+      try {
+        setAccounts(await fetchEmailAccounts(''))
+        setManagementLastUpdated(new Date())
+        return message
+      } catch (refreshError) {
+        const detail =
+          refreshError instanceof Error
+            ? refreshError.message
+            : String(refreshError)
+        setManagementError(`Inboxes deleted, but refresh failed: ${detail}`)
+        return `${message} Refresh the page to confirm the latest values.`
+      } finally {
+        setManagementLoading(false)
+      }
+    },
+    [],
+  )
+
   const handleBulkReconnect = useCallback(async (): Promise<string> => {
     const message = await bulkReconnectEmailAccounts('')
     setManagementLoading(true)
@@ -895,6 +919,7 @@ export default function App() {
             onUpdate={handleDomainSettingsUpdate}
             onValidateDns={handleValidateDomainDns}
             onBulkReconnect={handleBulkReconnect}
+            onDeleteInboxes={handleDeleteInboxes}
           />
         )}
       </main>

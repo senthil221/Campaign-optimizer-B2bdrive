@@ -182,6 +182,64 @@ async function runBulkEmailAccountAction(
   return res.send(text)
 }
 
+const MAX_BULK_DELETE_IDS = 2000
+
+async function bulkDeleteEmailAccounts(
+  req: VercelRequest,
+  res: VercelResponse,
+  jwt: string,
+) {
+  const body = objectValue(req.body)
+  const emailAccountIds = Array.isArray(body.emailAccountIds)
+    ? Array.from(
+        new Set(
+          body.emailAccountIds
+            .map(Number)
+            .filter((id) => Number.isInteger(id) && id > 0),
+        ),
+      )
+    : []
+  if (emailAccountIds.length === 0) {
+    return res
+      .status(400)
+      .json({ error: 'Provide at least one inbox to delete.' })
+  }
+  if (emailAccountIds.length > MAX_BULK_DELETE_IDS) {
+    return res.status(400).json({
+      error: `A maximum of ${MAX_BULK_DELETE_IDS} inboxes can be deleted per request.`,
+    })
+  }
+
+  try {
+    const upstream = await fetch(
+      `${SMARTLEAD_BASE}/api/email-account/bulk-delete`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ emailAccountIds }),
+      },
+    )
+    const text = await upstream.text()
+    res.setHeader('cache-control', 'private, max-age=0, no-store')
+    res.status(upstream.status)
+    res.setHeader(
+      'content-type',
+      upstream.headers.get('content-type') ||
+        'application/json; charset=utf-8',
+    )
+    return res.send(text)
+  } catch (error) {
+    return res.status(502).json({
+      error: `Bulk delete failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    })
+  }
+}
+
 function domainFromEmail(value: unknown): string {
   const email = String(value ?? '').trim().toLowerCase()
   const at = email.lastIndexOf('@')
@@ -763,6 +821,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         jwt,
         '/api/email-account/bulk-save-failed-email-accounts',
       )
+    }
+    if (
+      req.method === 'POST' &&
+      String(body.mode ?? '') === 'bulk-delete'
+    ) {
+      return await bulkDeleteEmailAccounts(req, res, jwt)
     }
   } catch (error) {
     return res.status(502).json({

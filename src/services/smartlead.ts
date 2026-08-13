@@ -361,6 +361,49 @@ export function validateDomainDns(jwt: string): Promise<string> {
   return runBulkEmailAccountAction(jwt, 'validate-dns', 'DNS validation')
 }
 
+/**
+ * Permanently delete a set of email accounts (inboxes) by their Smartlead IDs.
+ * Returns a human-readable summary of how many inboxes were removed.
+ */
+export async function bulkDeleteEmailAccounts(
+  jwt: string,
+  emailAccountIds: number[],
+): Promise<string> {
+  const ids = Array.from(
+    new Set(emailAccountIds.filter((id) => Number.isInteger(id) && id > 0)),
+  )
+  if (ids.length === 0) throw new Error('Select at least one inbox to delete.')
+
+  const res = await fetch(EMAIL_ACCOUNTS_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ mode: 'bulk-delete', emailAccountIds: ids }),
+  })
+  const text = await res.text()
+  let payload: {
+    message?: string
+    error?: string
+    success?: boolean
+    summary?: { results?: Array<{ accountIds?: number[] }> }
+  } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // The upstream endpoint may return plain text.
+  }
+  if (!res.ok || payload.success === false) {
+    throw new Error(
+      payload.error ||
+        payload.message ||
+        `Inbox deletion failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  return (
+    payload.message ||
+    `Deleted ${ids.length} inbox${ids.length === 1 ? '' : 'es'}.`
+  )
+}
+
 export function bulkReconnectEmailAccounts(jwt: string): Promise<string> {
   return runBulkEmailAccountAction(jwt, 'bulk-reconnect', 'Bulk reconnect')
 }
