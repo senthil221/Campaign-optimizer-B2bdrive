@@ -29,12 +29,20 @@ let client: Sql | null = null
 let schemaPromise: Promise<void> | null = null
 
 export function snapshotEnabled(): boolean {
-  return Boolean(process.env.DATABASE_URL?.trim())
+  return Boolean(databaseUrl())
+}
+
+function databaseUrl(): string {
+  return (
+    process.env.DATABASE_URL?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    ''
+  )
 }
 
 export function database(): Sql {
-  const url = process.env.DATABASE_URL?.trim()
-  if (!url) throw new Error('DATABASE_URL is not configured.')
+  const url = databaseUrl()
+  if (!url) throw new Error('DATABASE_URL or POSTGRES_URL is not configured.')
   if (!client) {
     client = postgres(url, {
       max: 3,

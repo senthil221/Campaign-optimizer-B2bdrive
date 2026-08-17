@@ -82,7 +82,7 @@ never returned to or stored in the browser.
 2. **Project → Settings → Environment Variables** add:
    - `SMARTLEAD_JWT` = your Smartlead JWT  *(required)*
    - `SMARTLEAD_API_KEY` = required for **Bulk Sync**
-   - `DATABASE_URL` = pooled Postgres connection string *(required for the enterprise inbox snapshot)*
+   - `DATABASE_URL` or `POSTGRES_URL` = pooled Postgres connection string *(required for the enterprise inbox snapshot; Vercel's Supabase integration supplies `POSTGRES_URL` automatically)*
    - `CRON_SECRET` = a random value of at least 16 characters *(required for scheduled synchronization)*
 3. Deploy. Open the app and click **Fetch accounts / tags** / **Fetch campaigns** — no token in the browser.
 
@@ -94,7 +94,7 @@ For local dev, copy `.env.example` → `.env`, fill in `SMARTLEAD_JWT`, and run 
 ### Enterprise inbox snapshot
 
 Large Smartlead workspaces no longer have to download 100-account pages directly
-into the browser. When `DATABASE_URL` is configured:
+into the browser. When `DATABASE_URL` or `POSTGRES_URL` is configured:
 
 - `/api/account-snapshot` performs a resumable, bounded synchronization with
   request timeouts, retries, exponential backoff, and page checkpoints;
@@ -126,7 +126,7 @@ workflows.
 - Reads the last complete compact Postgres snapshot in one request.
 - The sync worker reads Smartlead with Bearer JWT, `limit=100`, and durable page checkpoints.
 - Deduped by Smartlead account `id`, grouped by tag, with an atomic snapshot swap.
-- If `DATABASE_URL` is absent, the original direct Smartlead pagination remains available as a fallback.
+- If neither database variable is present, the original direct Smartlead pagination remains available as a fallback.
 
 Per tag: `account_count`, `total_daily_volume = Σ message_per_day`,
 `used_today = Σ daily_sent_count`, `remaining_today`, `avg_warmup_reputation`.

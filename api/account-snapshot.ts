@@ -12,7 +12,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!snapshotEnabled()) {
     return res.status(503).json({
       enabled: false,
-      error: 'DATABASE_URL is not configured; using the direct Smartlead fallback.',
+      error:
+        'DATABASE_URL or POSTGRES_URL is not configured; using the direct Smartlead fallback.',
     })
   }
 
