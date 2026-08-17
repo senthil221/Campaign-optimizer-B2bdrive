@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { groupDomainsByCurrentLimit } from './_lib/outbound-groups.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'
@@ -34,11 +35,13 @@ const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
   }
 }`
 
-type BulkAction =
-  | 'tags'
-  | 'outbound_limit'
-  | 'outbound_wait'
-  | 'warmup'
+type BulkAction = 'tags' | 'outbound' | 'warmup'
+
+// Older bundles split outbound updates into two half-payload actions. Smartlead
+// replaces the whole outbound settings block, so a half payload silently reset
+// the other field to a default. Those names are still accepted, but they now go
+// through the same both-fields-required validation and fail loudly instead.
+const OUTBOUND_ACTIONS = new Set(['outbound', 'outbound_limit', 'outbound_wait'])
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
@@ -264,16 +267,127 @@ function integerInRange(
   return numberValue
 }
 
+const MAX_OUTBOUND_GROUPS = 50
+const OUTBOUND_GROUP_CONCURRENCY = 3
+
+function domainList(values: string[]): string {
+  return values.length <= 3
+    ? values.join(', ')
+    : `${values.slice(0, 3).join(', ')} and ${values.length - 3} more`
+}
+
+async function applyPreservedOutbound(
+  res: VercelResponse,
+  jwt: string,
+  accounts: Record<string, unknown>[],
+  domains: string[],
+  minTimeToWaitInMins: number,
+) {
+  const { groups, mixed, unknown } = groupDomainsByCurrentLimit(
+    accounts,
+    domains,
+  )
+
+  if (unknown.length > 0) {
+    return res.status(400).json({
+      error:
+        `Smartlead has not reported a current max emails per day for every inbox on ${domainList(unknown)}. ` +
+        'Refresh accounts, or clear "Keep each inbox\'s current max" and set the value explicitly.',
+    })
+  }
+  if (mixed.length > 0) {
+    return res.status(400).json({
+      error:
+        `These domains have inboxes with different max emails per day, so the current values cannot be preserved in one pass: ${domainList(mixed)}. ` +
+        'Apply to them separately with an explicit max, or deselect them.',
+    })
+  }
+  if (groups.length === 0) {
+    return res.status(400).json({
+      error: 'No inboxes matched the selected domains.',
+    })
+  }
+  if (groups.length > MAX_OUTBOUND_GROUPS) {
+    return res.status(400).json({
+      error:
+        `The selection spans ${groups.length} different max-emails values and only ${MAX_OUTBOUND_GROUPS} can be preserved per request. ` +
+        'Narrow the selection and apply again.',
+    })
+  }
+
+  const results = await bulkMapWithConcurrency(
+    groups,
+    OUTBOUND_GROUP_CONCURRENCY,
+    async (group) => {
+      try {
+        const upstream = await fetch(`${HYPERTIDE_BASE}/update_outbound`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            token: jwt,
+            accounts: group.accounts,
+            domains: group.domains,
+            settings: {
+              messagePerDay: group.messagePerDay,
+              minTimeToWaitInMins,
+              status: 'ACTIVE',
+            },
+          }),
+        })
+        const text = await upstream.text()
+        if (!upstream.ok) {
+          throw new Error(
+            `Smartlead rejected the update (${upstream.status})${
+              text.trim() ? `: ${text.trim().slice(0, 200)}` : '.'
+            }`,
+          )
+        }
+        return {
+          messagePerDay: group.messagePerDay,
+          domainCount: group.domains.length,
+          accountCount: group.accounts.length,
+          ok: true as const,
+        }
+      } catch (error) {
+        return {
+          messagePerDay: group.messagePerDay,
+          domainCount: group.domains.length,
+          accountCount: group.accounts.length,
+          ok: false as const,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+  )
+
+  const failed = results.filter((result) => !result.ok)
+  const applied = results.filter((result) => result.ok)
+
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  if (failed.length > 0) {
+    // Partial success is reported as a failure so the operator investigates.
+    return res.status(502).json({
+      success: false,
+      error:
+        `${applied.length} of ${results.length} max-emails groups updated. ` +
+        `Failed at max ${failed.map((result) => result.messagePerDay).join(', ')}: ${failed[0].error}`,
+      groups: applied,
+    })
+  }
+  return res.status(200).json({ success: true, preserved: true, groups: applied })
+}
+
 async function updateDomainSettings(
   req: VercelRequest,
   res: VercelResponse,
   jwt: string,
 ) {
   const body = objectValue(req.body)
-  const action = String(body.action ?? '') as BulkAction
-  if (
-    !['tags', 'outbound_limit', 'outbound_wait', 'warmup'].includes(action)
-  ) {
+  const rawAction = String(body.action ?? '')
+  const action: BulkAction = OUTBOUND_ACTIONS.has(rawAction)
+    ? 'outbound'
+    : (rawAction as BulkAction)
+  if (!['tags', 'outbound', 'warmup'].includes(action)) {
     return res.status(400).json({ error: 'Unknown bulk settings action.' })
   }
 
@@ -331,18 +445,9 @@ async function updateDomainSettings(
       })
     }
     updateData = { tags }
-  } else if (action === 'outbound_limit') {
-    const settings = objectValue(body.settings)
-    const messagePerDay = integerInRange(settings.messagePerDay, 0, 1000)
-    if (messagePerDay === null) {
-      return res.status(400).json({
-        error: 'Max emails per day must be a whole number from 0 to 1,000.',
-      })
-    }
-    updateData = {
-      settings: { messagePerDay, status: 'ACTIVE' },
-    }
-  } else if (action === 'outbound_wait') {
+  } else if (action === 'outbound') {
+    // Smartlead replaces the whole outbound block, so both fields must be sent
+    // together. Sending only one silently resets the other to a default.
     const settings = objectValue(body.settings)
     const minTimeToWaitInMins = integerInRange(
       settings.minTimeToWaitInMins,
@@ -354,8 +459,23 @@ async function updateDomainSettings(
         error: 'Minimum wait must be a whole number from 0 to 1,440 minutes.',
       })
     }
+    if (body.preserveMessagePerDay === true) {
+      return await applyPreservedOutbound(
+        res,
+        jwt,
+        accounts,
+        domains,
+        minTimeToWaitInMins,
+      )
+    }
+    const messagePerDay = integerInRange(settings.messagePerDay, 0, 1000)
+    if (messagePerDay === null) {
+      return res.status(400).json({
+        error: 'Max emails per day must be a whole number from 0 to 1,000.',
+      })
+    }
     updateData = {
-      settings: { minTimeToWaitInMins, status: 'ACTIVE' },
+      settings: { messagePerDay, minTimeToWaitInMins, status: 'ACTIVE' },
     }
   } else {
     const settings = objectValue(body.settings)
@@ -390,7 +510,7 @@ async function updateDomainSettings(
   const endpoint =
     action === 'tags'
       ? 'update_tags'
-      : action === 'outbound_limit' || action === 'outbound_wait'
+      : action === 'outbound'
         ? 'update_outbound'
         : 'update_warmup'
 

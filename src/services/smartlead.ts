@@ -13,6 +13,7 @@ import type {
   DomainBounceRisk,
   DomainBulkUpdateRequest,
   DomainHealthMetric,
+  DomainOutboundGroupResult,
   EmailAccount,
   InboxReply,
   LoadCampaignsResult,
@@ -248,13 +249,14 @@ export async function updateDomainSettings(
     }),
   })
   const text = await res.text()
-  let payload: { message?: string; error?: string; success?: boolean } = {}
+  let payload: {
+    message?: string
+    error?: string
+    success?: boolean
+    groups?: DomainOutboundGroupResult[]
+  } = {}
   try {
-    payload = JSON.parse(text) as {
-      message?: string
-      error?: string
-      success?: boolean
-    }
+    payload = JSON.parse(text) as typeof payload
   } catch {
     // The upstream helper occasionally returns plain text.
   }
@@ -265,12 +267,31 @@ export async function updateDomainSettings(
         `Bulk ${request.action} update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
     )
   }
+
+  // Present only when the server preserved each inbox's existing max by
+  // splitting the write into one upstream call per distinct current value.
+  let preservedNote = ''
+  const groups = payload.groups ?? []
+  if (groups.length > 0) {
+    const parts = groups
+      .slice()
+      .sort((a, b) => a.messagePerDay - b.messagePerDay)
+      .map(
+        (group) =>
+          `${group.messagePerDay}/day on ${group.accountCount.toLocaleString()} inbox${
+            group.accountCount === 1 ? '' : 'es'
+          }`,
+      )
+    preservedNote = ` Existing max emails kept: ${parts.join('; ')}.`
+  }
+
   return {
-    message:
+    message: `${
       payload.message ||
       `Updated ${request.action} for ${request.domains.length} domain${
         request.domains.length === 1 ? '' : 's'
-      }.`,
+      }.`
+    }${preservedNote}`,
   }
 }
 
