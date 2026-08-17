@@ -32,6 +32,7 @@ import { num } from '../utils/campaignCalculations'
 // JWT from a server-side env var, so no secret is exposed in the browser and
 // there is no cross-origin (CORS) call from the client.
 const EMAIL_ACCOUNTS_URL = '/api/email-accounts'
+const ACCOUNT_SNAPSHOT_URL = '/api/account-snapshot'
 const CAMPAIGN_LIST_URL = '/api/campaign-list'
 const CAMPAIGN_ANALYTICS_URL = '/api/campaign-analytics'
 const CAMPAIGN_OVERVIEW_URL = '/api/campaign-overview'
@@ -52,6 +53,9 @@ const PAGE_LIMIT = 100
 const ANALYTICS_CHUNK = 50
 const REQUEST_DELAY_MS = 300
 const MAX_PAGES = 200 // safety cap (20k accounts)
+
+let snapshotAvailable = false
+let snapshotSyncPromise: Promise<void> | null = null
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -239,38 +243,65 @@ export async function updateDomainSettings(
   jwt: string,
   request: DomainBulkUpdateRequest,
 ): Promise<{ message: string }> {
-  const res = await fetch(DOMAIN_SETTINGS_URL, {
-    method: 'POST',
-    headers: authHeaders(jwt),
-    body: JSON.stringify({
-      ...request,
-      accounts: request.accounts.map(bulkAccountPayload),
-    }),
-  })
-  const text = await res.text()
-  let payload: { message?: string; error?: string; success?: boolean } = {}
-  try {
-    payload = JSON.parse(text) as {
-      message?: string
-      error?: string
-      success?: boolean
-    }
-  } catch {
-    // The upstream helper occasionally returns plain text.
+  const accountsByDomain = new Map<string, EmailAccount[]>()
+  for (const account of request.accounts) {
+    const domain = String(account.fromEmail.split('@').pop() ?? '').toLowerCase()
+    const rows = accountsByDomain.get(domain)
+    if (rows) rows.push(account)
+    else accountsByDomain.set(domain, [account])
   }
-  if (!res.ok || payload.success === false) {
-    throw new Error(
-      payload.error ||
-        payload.message ||
-        `Bulk ${request.action} update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-    )
+  const batches: Array<{ domains: string[]; accounts: EmailAccount[] }> = []
+  for (const domain of request.domains) {
+    const domainAccounts = accountsByDomain.get(domain.toLowerCase()) ?? []
+    let batch = batches[batches.length - 1]
+    if (!batch || (batch.accounts.length > 0 && batch.accounts.length + domainAccounts.length > 500)) {
+      batch = { domains: [], accounts: [] }
+      batches.push(batch)
+    }
+    batch.domains.push(domain)
+    batch.accounts.push(...domainAccounts)
+  }
+
+  let completedDomains = 0
+  for (const batch of batches) {
+    const res = await fetch(DOMAIN_SETTINGS_URL, {
+      method: 'POST',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({
+        ...request,
+        domains: batch.domains,
+        // With the durable snapshot enabled, the server resolves authoritative
+        // raw Smartlead records by domain. This keeps large bulk actions below
+        // serverless request-body limits. The legacy payload remains available
+        // until DATABASE_URL has been configured.
+        accounts: snapshotAvailable
+          ? undefined
+          : batch.accounts.map(bulkAccountPayload),
+        resolveFromSnapshot: snapshotAvailable,
+      }),
+    })
+    const text = await res.text()
+    let payload: { message?: string; error?: string; success?: boolean } = {}
+    try {
+      payload = JSON.parse(text) as typeof payload
+    } catch {
+      // The upstream helper occasionally returns plain text.
+    }
+    if (!res.ok || payload.success === false) {
+      throw new Error(
+        `${completedDomains > 0 ? `${completedDomains} domains completed. ` : ''}${
+          payload.error ||
+          payload.message ||
+          `Bulk ${request.action} update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`
+        }`,
+      )
+    }
+    completedDomains += batch.domains.length
   }
   return {
-    message:
-      payload.message ||
-      `Updated ${request.action} for ${request.domains.length} domain${
-        request.domains.length === 1 ? '' : 's'
-      }.`,
+    message: `Updated ${request.action} for ${completedDomains} domain${
+      completedDomains === 1 ? '' : 's'
+    } across ${request.accounts.length.toLocaleString()} inboxes.`,
   }
 }
 
@@ -374,34 +405,33 @@ export async function bulkDeleteEmailAccounts(
   )
   if (ids.length === 0) throw new Error('Select at least one inbox to delete.')
 
-  const res = await fetch(EMAIL_ACCOUNTS_URL, {
-    method: 'POST',
-    headers: authHeaders(jwt),
-    body: JSON.stringify({ mode: 'bulk-delete', emailAccountIds: ids }),
-  })
-  const text = await res.text()
-  let payload: {
-    message?: string
-    error?: string
-    success?: boolean
-    summary?: { results?: Array<{ accountIds?: number[] }> }
-  } = {}
-  try {
-    payload = JSON.parse(text) as typeof payload
-  } catch {
-    // The upstream endpoint may return plain text.
+  let deleted = 0
+  for (let start = 0; start < ids.length; start += 1_000) {
+    const batch = ids.slice(start, start + 1_000)
+    const res = await fetch(EMAIL_ACCOUNTS_URL, {
+      method: 'POST',
+      headers: authHeaders(jwt),
+      body: JSON.stringify({ mode: 'bulk-delete', emailAccountIds: batch }),
+    })
+    const text = await res.text()
+    let payload: { message?: string; error?: string; success?: boolean } = {}
+    try {
+      payload = JSON.parse(text) as typeof payload
+    } catch {
+      // The upstream endpoint may return plain text.
+    }
+    if (!res.ok || payload.success === false) {
+      throw new Error(
+        `${deleted > 0 ? `${deleted} inboxes deleted. ` : ''}${
+          payload.error ||
+          payload.message ||
+          `Inbox deletion failed (${res.status} ${res.statusText}). Response: ${preview(text)}`
+        }`,
+      )
+    }
+    deleted += batch.length
   }
-  if (!res.ok || payload.success === false) {
-    throw new Error(
-      payload.error ||
-        payload.message ||
-        `Inbox deletion failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-    )
-  }
-  return (
-    payload.message ||
-    `Deleted ${ids.length} inbox${ids.length === 1 ? '' : 'es'}.`
-  )
+  return `Deleted ${deleted} inbox${deleted === 1 ? '' : 'es'}.`
 }
 
 export function bulkReconnectEmailAccounts(jwt: string): Promise<string> {
@@ -569,12 +599,122 @@ async function fetchEmailAccountsByUsage(
  * Fetch ALL email accounts (active + idle) in parallel, tagging each with
  * isInUse so idle inboxes can be surfaced in the Tag Overview.
  */
-export async function fetchEmailAccounts(jwt: string): Promise<EmailAccount[]> {
+async function fetchEmailAccountsDirect(jwt: string): Promise<EmailAccount[]> {
   const [active, idle] = await Promise.all([
     fetchEmailAccountsByUsage(jwt, true),
     fetchEmailAccountsByUsage(jwt, false),
   ])
   return dedupeAccounts([...active, ...idle])
+}
+
+interface SnapshotStatusResponse {
+  enabled: boolean
+  ready: boolean
+  stale: boolean
+  syncing: boolean
+  phase: 'active' | 'idle' | 'complete'
+  offset: number
+  fetched: number
+  accountCount: number
+  error: string | null
+}
+
+interface SnapshotPayload {
+  accounts?: EmailAccount[]
+  status?: SnapshotStatusResponse
+  error?: string
+}
+
+async function snapshotRequest(
+  jwt: string,
+): Promise<SnapshotPayload | null> {
+  const res = await fetch(ACCOUNT_SNAPSHOT_URL, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  if (res.status === 503) {
+    snapshotAvailable = false
+    return null
+  }
+  const text = await res.text()
+  if (!res.ok) {
+    throw new Error(
+      `Account snapshot request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  const payload = JSON.parse(text) as SnapshotPayload
+  snapshotAvailable = payload.status?.enabled === true
+  return payload
+}
+
+async function continueSnapshotSync(jwt: string, force: boolean): Promise<void> {
+  if (snapshotSyncPromise) return snapshotSyncPromise
+  snapshotSyncPromise = (async () => {
+    let first = true
+    for (let step = 0; step < 60; step++) {
+      const res = await fetch(ACCOUNT_SNAPSHOT_URL, {
+        method: 'POST',
+        headers: authHeaders(jwt),
+        body: JSON.stringify({ pages: 8, force: force && first }),
+      })
+      first = false
+      const text = await res.text()
+      if (!res.ok) {
+        throw new Error(
+          `Account synchronization failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+        )
+      }
+      const payload = JSON.parse(text) as SnapshotPayload
+      const status = payload.status
+      if (!status || status.phase === 'complete') return
+    }
+    throw new Error(
+      'Account synchronization exceeded its safety limit. It can be resumed without losing completed pages.',
+    )
+  })().finally(() => {
+    snapshotSyncPromise = null
+  })
+  return snapshotSyncPromise
+}
+
+/**
+ * Prefer the durable compact snapshot. A fresh installation performs a
+ * resumable initial sync; later visits receive the last complete snapshot
+ * immediately while a stale snapshot refreshes in the background.
+ */
+export async function fetchEmailAccounts(
+  jwt: string,
+  forceRefresh = false,
+): Promise<EmailAccount[]> {
+  let snapshot: SnapshotPayload | null
+  try {
+    snapshot = await snapshotRequest(jwt)
+  } catch {
+    // A database outage must not take away the existing Smartlead workflow.
+    snapshotAvailable = false
+    return fetchEmailAccountsDirect(jwt)
+  }
+  if (!snapshot) return fetchEmailAccountsDirect(jwt)
+
+  const accounts = Array.isArray(snapshot.accounts) ? snapshot.accounts : []
+  if (accounts.length > 0) {
+    if (snapshot.status?.stale && !snapshot.status.syncing) {
+      if (forceRefresh) {
+        await continueSnapshotSync(jwt, true)
+        const refreshed = await snapshotRequest(jwt)
+        return refreshed?.accounts ?? accounts
+      }
+      void continueSnapshotSync(jwt, true).catch(() => undefined)
+    }
+    return accounts
+  }
+
+  await continueSnapshotSync(jwt, false)
+  const completed = await snapshotRequest(jwt)
+  if (completed?.status?.phase === 'complete') {
+    return completed.accounts ?? []
+  }
+  throw new Error('Smartlead synchronization did not produce a complete snapshot.')
 }
 
 /**

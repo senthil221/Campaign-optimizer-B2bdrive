@@ -1,4 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import {
+  deleteSnapshotAccounts,
+  markSnapshotStale,
+  rawAccountsForDomains,
+  snapshotEnabled,
+} from './_lib/smartlead-snapshot.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'
@@ -173,6 +179,7 @@ async function runBulkEmailAccountAction(
     body: JSON.stringify({}),
   })
   const text = await upstream.text()
+  if (upstream.ok) await markSnapshotStale()
   res.setHeader('cache-control', 'private, max-age=0, no-store')
   res.status(upstream.status)
   res.setHeader(
@@ -223,6 +230,7 @@ async function bulkDeleteEmailAccounts(
       },
     )
     const text = await upstream.text()
+    if (upstream.ok) await deleteSnapshotAccounts(emailAccountIds)
     res.setHeader('cache-control', 'private, max-age=0, no-store')
     res.status(upstream.status)
     res.setHeader(
@@ -298,7 +306,7 @@ async function updateDomainSettings(
 
   const domainSet = new Set(domains)
   const accountIds = new Set<number>()
-  const accounts = (Array.isArray(body.accounts) ? body.accounts : [])
+  let accounts = (Array.isArray(body.accounts) ? body.accounts : [])
     .map(objectValue)
     .filter((account) => {
       const id = Number(account.id)
@@ -308,6 +316,9 @@ async function updateDomainSettings(
       accountIds.add(id)
       return true
     })
+  if (snapshotEnabled() && body.resolveFromSnapshot === true) {
+    accounts = await rawAccountsForDomains(domains)
+  }
   if (accounts.length === 0) {
     return res.status(400).json({
       error: 'No inboxes matched the selected domains.',
@@ -406,6 +417,7 @@ async function updateDomainSettings(
       }),
     })
     const text = await upstream.text()
+    if (upstream.ok) await markSnapshotStale()
     res.setHeader('cache-control', 'private, max-age=0, no-store')
     res.status(upstream.status)
     res.setHeader(

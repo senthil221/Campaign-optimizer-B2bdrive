@@ -466,7 +466,7 @@ export default function App() {
       setManagementLoading(true)
       setManagementError(null)
       try {
-        setAccounts(await fetchEmailAccounts(''))
+        setAccounts(await fetchEmailAccounts('', true))
         setManagementLastUpdated(new Date())
         return result.message
       } catch (refreshError) {
@@ -488,7 +488,7 @@ export default function App() {
     setManagementLoading(true)
     setManagementError(null)
     try {
-      setAccounts(await fetchEmailAccounts(''))
+      setAccounts(await fetchEmailAccounts('', true))
       setManagementLastUpdated(new Date())
     } catch (refreshError) {
       const detail =
@@ -508,7 +508,7 @@ export default function App() {
       setManagementLoading(true)
       setManagementError(null)
       try {
-        setAccounts(await fetchEmailAccounts(''))
+        setAccounts(await fetchEmailAccounts('', true))
         setManagementLastUpdated(new Date())
         return message
       } catch (refreshError) {
@@ -530,7 +530,7 @@ export default function App() {
     setManagementLoading(true)
     setManagementError(null)
     try {
-      setAccounts(await fetchEmailAccounts(''))
+      setAccounts(await fetchEmailAccounts('', true))
       setManagementLastUpdated(new Date())
     } catch (refreshError) {
       const detail =

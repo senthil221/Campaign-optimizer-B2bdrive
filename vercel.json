@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/account-snapshot.ts": { "maxDuration": 60 },
+    "api/smartlead-sync.ts": { "maxDuration": 60 },
+    "api/domain-health.ts": { "maxDuration": 60 },
+    "api/email-accounts.ts": { "maxDuration": 60 }
+  },
+  "crons": [
+    {
+      "path": "/api/smartlead-sync",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}
