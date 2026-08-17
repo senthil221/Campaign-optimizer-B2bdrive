@@ -106,6 +106,14 @@ export async function ensureSnapshotSchema(): Promise<void> {
           on smartlead_accounts_stage (tenant_key, smartlead_id);
         create index if not exists smartlead_accounts_stage_run_idx
           on smartlead_accounts_stage (tenant_key, run_token);
+
+        alter table smartlead_sync_state enable row level security;
+        alter table smartlead_accounts enable row level security;
+        alter table smartlead_accounts_stage enable row level security;
+
+        revoke all on table smartlead_sync_state from anon, authenticated, public;
+        revoke all on table smartlead_accounts from anon, authenticated, public;
+        revoke all on table smartlead_accounts_stage from anon, authenticated, public;
       `)
     })().catch((error) => {
       schemaPromise = null
