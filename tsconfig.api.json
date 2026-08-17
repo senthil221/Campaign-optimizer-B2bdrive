@@ -14,6 +14,7 @@
     "api/email-accounts.ts",
     "api/smartlead-sync.ts",
     "api/_lib/smartlead-snapshot.ts",
+    "api/_lib/outbound-groups.ts",
     "server/campaign-handlers/*.ts"
   ]
 }

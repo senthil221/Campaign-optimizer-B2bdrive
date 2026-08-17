@@ -13,6 +13,7 @@ import type {
   DomainBounceRisk,
   DomainBulkUpdateRequest,
   DomainHealthMetric,
+  DomainOutboundGroupResult,
   EmailAccount,
   InboxReply,
   LoadCampaignsResult,
@@ -263,6 +264,8 @@ export async function updateDomainSettings(
   }
 
   let completedDomains = 0
+  // Accumulated across batches when the server preserved existing max values.
+  const preservedByLimit = new Map<number, number>()
   for (const batch of batches) {
     const res = await fetch(DOMAIN_SETTINGS_URL, {
       method: 'POST',
@@ -281,7 +284,12 @@ export async function updateDomainSettings(
       }),
     })
     const text = await res.text()
-    let payload: { message?: string; error?: string; success?: boolean } = {}
+    let payload: {
+      message?: string
+      error?: string
+      success?: boolean
+      groups?: DomainOutboundGroupResult[]
+    } = {}
     try {
       payload = JSON.parse(text) as typeof payload
     } catch {
@@ -296,12 +304,30 @@ export async function updateDomainSettings(
         }`,
       )
     }
+    for (const group of payload.groups ?? []) {
+      preservedByLimit.set(
+        group.messagePerDay,
+        (preservedByLimit.get(group.messagePerDay) ?? 0) + group.accountCount,
+      )
+    }
     completedDomains += batch.domains.length
   }
+
+  let preservedNote = ''
+  if (preservedByLimit.size > 0) {
+    const parts = Array.from(preservedByLimit.entries())
+      .sort(([a], [b]) => a - b)
+      .map(
+        ([limit, count]) =>
+          `${limit}/day on ${count.toLocaleString()} inbox${count === 1 ? '' : 'es'}`,
+      )
+    preservedNote = ` Existing max emails kept: ${parts.join('; ')}.`
+  }
+
   return {
     message: `Updated ${request.action} for ${completedDomains} domain${
       completedDomains === 1 ? '' : 's'
-    } across ${request.accounts.length.toLocaleString()} inboxes.`,
+    } across ${request.accounts.length.toLocaleString()} inboxes.${preservedNote}`,
   }
 }
 

@@ -150,20 +150,37 @@ export interface DomainManagementRow {
   tagNames: string[]
 }
 
-export type DomainSettingsAction =
-  | 'tags'
-  | 'outbound_limit'
-  | 'outbound_wait'
-  | 'warmup'
+export type DomainSettingsAction = 'tags' | 'outbound' | 'warmup'
 
 export interface DomainTagSettings {
   tags: string[]
 }
 
+/**
+ * Smartlead's `update_outbound` endpoint replaces the whole outbound settings
+ * block rather than merging it, so any field left out is reset to Smartlead's
+ * default. Both values are therefore required on every outbound update.
+ */
 export interface DomainOutboundSettings {
-  messagePerDay?: number
-  minTimeToWaitInMins?: number
+  messagePerDay: number
+  minTimeToWaitInMins: number
   status: 'ACTIVE'
+}
+
+/**
+ * Paired with `preserveMessagePerDay`. `messagePerDay` is deliberately absent so
+ * that a dropped flag produces a 400 instead of silently writing a default max.
+ */
+export interface DomainOutboundPreserveSettings {
+  minTimeToWaitInMins: number
+  status: 'ACTIVE'
+}
+
+/** One `update_outbound` call issued against inboxes sharing a current max. */
+export interface DomainOutboundGroupResult {
+  messagePerDay: number
+  domainCount: number
+  accountCount: number
 }
 
 export interface DomainWarmupSettings {
@@ -180,7 +197,15 @@ export interface DomainBulkUpdateRequest {
   domains: string[]
   accounts: EmailAccount[]
   tags?: string[]
-  settings?: DomainOutboundSettings | DomainWarmupSettings
+  settings?:
+    | DomainOutboundSettings
+    | DomainOutboundPreserveSettings
+    | DomainWarmupSettings
+  /**
+   * Outbound only. Keeps every inbox's existing `message_per_day` by splitting
+   * the write into one upstream call per distinct current value.
+   */
+  preserveMessagePerDay?: boolean
 }
 
 export interface DomainHealthMetric {
