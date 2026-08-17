@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     let status = await readSnapshotStatus()
     let first = true
-    for (let step = 0; step < 8 && Date.now() < deadline; step++) {
+    for (let step = 0; step < 64 && Date.now() < deadline; step++) {
       status = await runSnapshotStep(jwt, 8, first)
       first = false
       if (status.phase === 'complete') break

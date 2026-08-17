@@ -411,53 +411,64 @@ async function runSnapshotStepUnlocked(
   let phase: SyncPhase = state.phase
   let offset = state.page_offset
   try {
-    for (let index = 0; index < pages && phase !== 'complete'; index++) {
-      const inUse = phase === 'active'
-      const rows = await smartleadPage(jwt, offset, inUse)
-      const saved = await upsertPage(rows, inUse, token)
-      if (rows.length < PAGE_LIMIT) {
-        if (phase === 'active') {
-          phase = 'idle'
-          offset = 0
-        } else {
-          phase = 'complete'
-          await sql.begin(async (transaction) => {
-            await transaction`
-              delete from smartlead_accounts where tenant_key = ${TENANT_KEY}
-            `
-            await transaction`
-              insert into smartlead_accounts (
-                tenant_key, smartlead_id, from_email, normalized_domain, from_name,
-                provider_type, created_at, message_per_day, daily_sent_count,
-                warmup_status, warmup_reputation, connected, is_in_use,
-                dns_spf_verified, dns_dkim_verified, dns_dmarc_verified,
-                dns_last_verified_at, tag_ids, tag_names, raw_account,
-                run_token, last_seen_at
-              )
-              select tenant_key, smartlead_id, from_email, normalized_domain, from_name,
-                provider_type, created_at, message_per_day, daily_sent_count,
-                warmup_status, warmup_reputation, connected, is_in_use,
-                dns_spf_verified, dns_dkim_verified, dns_dmarc_verified,
-                dns_last_verified_at, tag_ids, tag_names, raw_account,
-                run_token, last_seen_at
-              from smartlead_accounts_stage
-              where tenant_key = ${TENANT_KEY} and run_token = ${token}
-            `
-            await transaction`
-              delete from smartlead_accounts_stage where tenant_key = ${TENANT_KEY}
-            `
-            await transaction`
-              update smartlead_sync_state set phase = 'complete', page_offset = 0,
-                status = 'idle', completed_at = now(), heartbeat_at = now(),
-                last_error = null, updated_at = now()
-              where tenant_key = ${TENANT_KEY}
-            `
-          })
-          break
-        }
+    // Fetch a bounded page window concurrently. Smartlead page latency is much
+    // higher than the database write, so serial fetches can exhaust a Vercel
+    // Hobby function's 60-second runtime even though memory use is modest.
+    const inUse = phase === 'active'
+    const offsets = Array.from({ length: pages }, (_, index) => offset + index * PAGE_LIMIT)
+    const pageRows = await Promise.all(
+      offsets.map((pageOffset) => smartleadPage(jwt, pageOffset, inUse)),
+    )
+    const terminalIndex = pageRows.findIndex((rows) => rows.length < PAGE_LIMIT)
+    const completedPages = terminalIndex >= 0 ? pageRows.slice(0, terminalIndex + 1) : pageRows
+    const saved = await upsertPage(completedPages.flat(), inUse, token)
+
+    if (terminalIndex >= 0) {
+      if (phase === 'active') {
+        phase = 'idle'
+        offset = 0
       } else {
-        offset += PAGE_LIMIT
+        phase = 'complete'
       }
+    } else {
+      offset += pages * PAGE_LIMIT
+    }
+
+    if (phase === 'complete') {
+      await sql.begin(async (transaction) => {
+        await transaction`
+          delete from smartlead_accounts where tenant_key = ${TENANT_KEY}
+        `
+        await transaction`
+          insert into smartlead_accounts (
+            tenant_key, smartlead_id, from_email, normalized_domain, from_name,
+            provider_type, created_at, message_per_day, daily_sent_count,
+            warmup_status, warmup_reputation, connected, is_in_use,
+            dns_spf_verified, dns_dkim_verified, dns_dmarc_verified,
+            dns_last_verified_at, tag_ids, tag_names, raw_account,
+            run_token, last_seen_at
+          )
+          select tenant_key, smartlead_id, from_email, normalized_domain, from_name,
+            provider_type, created_at, message_per_day, daily_sent_count,
+            warmup_status, warmup_reputation, connected, is_in_use,
+            dns_spf_verified, dns_dkim_verified, dns_dmarc_verified,
+            dns_last_verified_at, tag_ids, tag_names, raw_account,
+            run_token, last_seen_at
+          from smartlead_accounts_stage
+          where tenant_key = ${TENANT_KEY} and run_token = ${token}
+        `
+        await transaction`
+          delete from smartlead_accounts_stage where tenant_key = ${TENANT_KEY}
+        `
+        await transaction`
+          update smartlead_sync_state set phase = 'complete', page_offset = 0,
+            fetched_count = fetched_count + ${saved}, status = 'idle',
+            completed_at = now(), heartbeat_at = now(), last_error = null,
+            updated_at = now()
+          where tenant_key = ${TENANT_KEY}
+        `
+      })
+    } else {
       await sql`
         update smartlead_sync_state set phase = ${phase}, page_offset = ${offset},
           fetched_count = fetched_count + ${saved}, status = 'syncing',
