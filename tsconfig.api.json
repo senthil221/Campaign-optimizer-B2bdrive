@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true
+  },
+  "include": [
+    "api/account-snapshot.ts",
+    "api/campaign-actions.ts",
+    "api/email-accounts.ts",
+    "api/smartlead-sync.ts",
+    "api/_lib/smartlead-snapshot.ts",
+    "api/_lib/outbound-groups.ts",
+    "server/campaign-handlers/*.ts"
+  ]
+}

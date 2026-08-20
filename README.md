@@ -82,6 +82,8 @@ never returned to or stored in the browser.
 2. **Project → Settings → Environment Variables** add:
    - `SMARTLEAD_JWT` = your Smartlead JWT  *(required)*
    - `SMARTLEAD_API_KEY` = required for **Bulk Sync**
+   - `DATABASE_URL` or `POSTGRES_URL` = pooled Postgres connection string *(required for the enterprise inbox snapshot; Vercel's Supabase integration supplies `POSTGRES_URL` automatically)*
+   - `CRON_SECRET` = a random value of at least 16 characters *(required for scheduled synchronization)*
 3. Deploy. Open the app and click **Fetch accounts / tags** / **Fetch campaigns** — no token in the browser.
 
 > ⚠️ Do **not** prefix these with `VITE_`. `VITE_` env vars are inlined into the public JS bundle
@@ -89,12 +91,42 @@ never returned to or stored in the browser.
 
 For local dev, copy `.env.example` → `.env`, fill in `SMARTLEAD_JWT`, and run `vercel dev`.
 
+### Enterprise inbox snapshot
+
+Large Smartlead workspaces no longer have to download 100-account pages directly
+into the browser. When `DATABASE_URL` or `POSTGRES_URL` is configured:
+
+- `/api/account-snapshot` performs a resumable, bounded synchronization with
+  request timeouts, retries, exponential backoff, and page checkpoints;
+- pages are written to a staging snapshot and atomically promoted only after
+  both active and idle inbox scans complete;
+- the browser receives one compact normalized payload without Smartlead's large
+  raw account objects;
+- `/api/account-snapshot?mode=domains` and `mode=inboxes` provide indexed,
+  server-paginated reads for larger management views;
+- bulk domain settings resolve authoritative raw accounts on the server, keeping
+  browser request bodies small; and
+- the last complete snapshot remains available while a refresh is running or
+  Smartlead is temporarily unavailable.
+
+The first app visit completes the resumable initial sync. Later visits read the
+last complete snapshot immediately and refresh stale data in the background.
+`/api/smartlead-sync` is also protected by `CRON_SECRET` and scheduled daily in
+`vercel.json`, which is deployable on every Vercel plan. Vercel Pro or Enterprise
+projects can safely increase the schedule to every 5–15 minutes.
+
+The schema initializes automatically on first use. The reviewed SQL is also
+available at `db/migrations/001_smartlead_snapshot.sql` for managed migration
+workflows.
+
 ## Data flow
 
 ### Email accounts / tags
-`GET /api/email-account/get-total-email-accounts?offset={offset}&limit=100&isInUse=true`
-- Bearer JWT, `limit=100`, paginated with `offset += 100` until a page returns nothing.
-- Deduped by `id`, grouped by tag.
+`GET /api/account-snapshot`
+- Reads the last complete compact Postgres snapshot in one request.
+- The sync worker reads Smartlead with Bearer JWT, `limit=100`, and durable page checkpoints.
+- Deduped by Smartlead account `id`, grouped by tag, with an atomic snapshot swap.
+- If neither database variable is present, the original direct Smartlead pagination remains available as a fallback.
 
 Per tag: `account_count`, `total_daily_volume = Σ message_per_day`,
 `used_today = Σ daily_sent_count`, `remaining_today`, `avg_warmup_reputation`.
@@ -151,6 +183,8 @@ shared-tag days so you can see which pools deplete first.
 ```
 api/                               Vercel serverless proxy (holds the secret)
   email-accounts.ts
+  account-snapshot.ts
+  smartlead-sync.ts
   campaign-list.ts
   campaign-analytics.ts
 src/

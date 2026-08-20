@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/account-snapshot.ts": { "maxDuration": 60 },
+    "api/smartlead-sync.ts": { "maxDuration": 60 },
+    "api/domain-health.ts": { "maxDuration": 60 },
+    "api/email-accounts.ts": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/api/campaign-status", "destination": "/api/campaign-actions?action=status" },
+    { "source": "/api/campaign-sequences", "destination": "/api/campaign-actions?action=sequences" },
+    { "source": "/api/campaign-sequence-editor", "destination": "/api/campaign-actions?action=sequence-editor" }
+  ],
+  "crons": [
+    {
+      "path": "/api/smartlead-sync",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}
