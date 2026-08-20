@@ -40,9 +40,19 @@ export default {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        pop: {
+          '0%': { opacity: '0', transform: 'translateY(-4px) scale(0.985)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        'pop-up': {
+          '0%': { opacity: '0', transform: 'translateY(4px) scale(0.985)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
       },
       animation: {
         rise: 'rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both',
+        pop: 'pop 0.14s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'pop-up': 'pop-up 0.14s cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },
