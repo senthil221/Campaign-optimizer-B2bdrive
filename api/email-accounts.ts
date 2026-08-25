@@ -8,8 +8,17 @@ import {
 import { groupDomainsByCurrentLimit } from './_lib/outbound-groups.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
-const HYPERTIDE_BASE = 'https://smartlead.hypertide.io/smartlead/api'
 const GQL_URL = 'https://fe-gql.smartlead.ai/v1/graphql'
+// Bulk settings writes used to go through a third-party helper
+// (smartlead.hypertide.io), which took the whole domain selection and fanned it
+// out. That host went offline and returned its hosting provider's HTML 404,
+// which this route relayed verbatim into the dashboard. Writes now go straight
+// to Smartlead's own bulk endpoint with the operator's JWT — the same host and
+// auth as the bulk-delete call below.
+const BULK_CONFIG_URL = `${SMARTLEAD_BASE}/api/email-account/bulk-update-email-account-config`
+// Ids per upstream call, and how many of those calls run at once.
+const BULK_CONFIG_CHUNK = 250
+const BULK_CONFIG_CONCURRENCY = 4
 const TAG_PAGE_LIMIT = 100
 const MAX_TAG_PAGES = 200
 const TAG_COLORS = [
@@ -107,6 +116,36 @@ async function tagGraphqlRequest(
     throw new Error(message || 'Smartlead GraphQL returned a tag error.')
   }
   return objectValue(payload.data)
+}
+
+/** Every tag in the workspace, paged. Throws past the page ceiling. */
+async function fetchAllTags(jwt: string) {
+  const tags: ReturnType<typeof normalizeTag>[] = []
+  const seenIds = new Set<number>()
+
+  for (let page = 0; page < MAX_TAG_PAGES; page++) {
+    const data = await tagGraphqlRequest(jwt, {
+      operationName: 'getPaginatedTags',
+      variables: {
+        offset: page * TAG_PAGE_LIMIT,
+        limit: TAG_PAGE_LIMIT,
+        where: {},
+      },
+      query: TAGS_QUERY,
+    })
+    const rows = Array.isArray(data.tags) ? data.tags : []
+    for (const row of rows) {
+      const tag = normalizeTag(objectValue(row) as UpstreamTag)
+      if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
+      seenIds.add(tag.id)
+      tags.push(tag)
+    }
+    if (rows.length < TAG_PAGE_LIMIT) return tags
+  }
+
+  throw new Error(
+    `Tag loading stopped after ${MAX_TAG_PAGES * TAG_PAGE_LIMIT} rows.`,
+  )
 }
 
 async function listTags(res: VercelResponse, jwt: string) {
@@ -278,6 +317,143 @@ function integerInRange(
 const MAX_OUTBOUND_GROUPS = 50
 const OUTBOUND_GROUP_CONCURRENCY = 3
 
+/**
+ * Turns an upstream failure into one readable sentence. An HTML body means we
+ * reached something that is not the API (a proxy, an error page, a parked
+ * host), so it is described rather than pasted — that is what put a hosting
+ * provider's 404 page inside the dashboard's error banner.
+ */
+function describeUpstreamFailure(
+  status: number,
+  contentType: string,
+  text: string,
+): string {
+  const body = text.trim()
+  const looksHtml =
+    contentType.toLowerCase().includes('text/html') ||
+    body.slice(0, 200).toLowerCase().includes('<!doctype html') ||
+    body.slice(0, 200).toLowerCase().includes('<html')
+  if (looksHtml) {
+    return `Smartlead's bulk settings endpoint returned an HTML error page (${status}) instead of a response. The upstream service is unavailable — retry shortly.`
+  }
+  if (!body) return `Smartlead rejected the update (${status}).`
+  let message = body
+  try {
+    const payload = objectValue(JSON.parse(body))
+    message =
+      String(payload.error ?? payload.message ?? '').trim() || body
+  } catch {
+    // Plain-text upstream error; use it as-is.
+  }
+  return `Smartlead rejected the update (${status}): ${message.slice(0, 300)}`
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    out.push(items.slice(index, index + size))
+  }
+  return out
+}
+
+function accountIdsOf(accounts: Record<string, unknown>[]): number[] {
+  const ids = new Set<number>()
+  for (const account of accounts) {
+    const id = Number(account.id)
+    if (Number.isInteger(id) && id > 0) ids.add(id)
+  }
+  return [...ids]
+}
+
+/**
+ * One bulk write against Smartlead. `updateData` is the flat settings object
+ * for the action (e.g. `{ messagePerDay, minTimeToWaitInMins, status }`);
+ * Smartlead applies it to every id in `emailAccountIds`.
+ */
+async function postBulkAccountConfig(
+  jwt: string,
+  emailAccountIds: number[],
+  updateData: Record<string, unknown>,
+): Promise<void> {
+  const upstream = await fetch(BULK_CONFIG_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      emailAccountIds,
+      // Smartlead's own UI sends dailyReplyLimit on every bulk config write,
+      // whichever setting is being changed; mirror that.
+      updateData: { dailyReplyLimit: null, ...updateData },
+      excludeEmailAccountIds: [],
+    }),
+  })
+  const text = await upstream.text()
+  if (!upstream.ok) {
+    throw new Error(
+      describeUpstreamFailure(
+        upstream.status,
+        upstream.headers.get('content-type') ?? '',
+        text,
+      ),
+    )
+  }
+  // A 200 carrying `success: false` is still a failure.
+  let payload: Record<string, unknown> | null = null
+  try {
+    payload = objectValue(JSON.parse(text))
+  } catch {
+    // Non-JSON 2xx body. Smartlead has returned plain text here before, so a
+    // successful status with an unparseable body still counts as applied.
+  }
+  if (payload && (payload.success === false || payload.ok === false)) {
+    throw new Error(
+      String(payload.error ?? payload.message ?? '').trim() ||
+        'Smartlead reported the bulk update as unsuccessful.',
+    )
+  }
+}
+
+interface BulkConfigOutcome {
+  updated: number
+  failed: number
+  error?: string
+}
+
+/** Applies one settings object across many inboxes, chunked and in parallel. */
+async function applyBulkConfig(
+  jwt: string,
+  emailAccountIds: number[],
+  updateData: Record<string, unknown>,
+): Promise<BulkConfigOutcome> {
+  const chunks = chunk(emailAccountIds, BULK_CONFIG_CHUNK)
+  const results = await bulkMapWithConcurrency(
+    chunks,
+    BULK_CONFIG_CONCURRENCY,
+    async (ids) => {
+      try {
+        await postBulkAccountConfig(jwt, ids, updateData)
+        return { count: ids.length, ok: true as const }
+      } catch (error) {
+        return {
+          count: ids.length,
+          ok: false as const,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+  )
+  const failedChunks = results.filter((result) => !result.ok)
+  return {
+    updated: results
+      .filter((result) => result.ok)
+      .reduce((sum, result) => sum + result.count, 0),
+    failed: failedChunks.reduce((sum, result) => sum + result.count, 0),
+    error: failedChunks[0]?.error,
+  }
+}
+
 function domainList(values: string[]): string {
   return values.length <= 3
     ? values.join(', ')
@@ -328,26 +504,17 @@ async function applyPreservedOutbound(
     OUTBOUND_GROUP_CONCURRENCY,
     async (group) => {
       try {
-        const upstream = await fetch(`${HYPERTIDE_BASE}/update_outbound`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            token: jwt,
-            accounts: group.accounts,
-            domains: group.domains,
-            settings: {
-              messagePerDay: group.messagePerDay,
-              minTimeToWaitInMins,
-              status: 'ACTIVE',
-            },
-          }),
-        })
-        const text = await upstream.text()
-        if (!upstream.ok) {
+        const outcome = await applyBulkConfig(
+          jwt,
+          accountIdsOf(group.accounts),
+          {
+            messagePerDay: group.messagePerDay,
+            minTimeToWaitInMins,
+          },
+        )
+        if (outcome.failed > 0) {
           throw new Error(
-            `Smartlead rejected the update (${upstream.status})${
-              text.trim() ? `: ${text.trim().slice(0, 200)}` : '.'
-            }`,
+            outcome.error ?? 'Smartlead rejected part of the update.',
           )
         }
         return {
@@ -456,7 +623,37 @@ async function updateDomainSettings(
         error: 'Provide between 1 and 50 existing Smartlead tag names.',
       })
     }
-    updateData = { tags }
+    // The dashboard works in tag names; Smartlead's bulk endpoint takes tag
+    // ids. Resolve here so an unknown name fails before anything is written.
+    let known: Awaited<ReturnType<typeof fetchAllTags>>
+    try {
+      known = await fetchAllTags(jwt)
+    } catch (error) {
+      return res.status(502).json({
+        error: `Could not load Smartlead tags: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      })
+    }
+    const idByName = new Map(
+      known.map((tag) => [tag.name.toLowerCase(), tag.id]),
+    )
+    const tagIds: number[] = []
+    const missing: string[] = []
+    for (const name of tags) {
+      const id = idByName.get(name.toLowerCase())
+      if (id) tagIds.push(id)
+      else missing.push(name)
+    }
+    if (missing.length > 0) {
+      return res.status(400).json({
+        error: `No Smartlead tag named ${missing
+          .slice(0, 3)
+          .map((name) => `"${name}"`)
+          .join(', ')}. Create the tag first, then apply it.`,
+      })
+    }
+    updateData = { tags: tagIds }
   } else if (action === 'outbound') {
     // Smartlead replaces the whole outbound block, so both fields must be sent
     // together. Sending only one silently resets the other to a default.
@@ -486,9 +683,7 @@ async function updateDomainSettings(
         error: 'Max emails per day must be a whole number from 0 to 1,000.',
       })
     }
-    updateData = {
-      settings: { messagePerDay, minTimeToWaitInMins, status: 'ACTIVE' },
-    }
+    updateData = { messagePerDay, minTimeToWaitInMins }
   } else {
     const settings = objectValue(body.settings)
     const maxEmailPerDay = integerInRange(settings.maxEmailPerDay, 0, 1000)
@@ -508,45 +703,35 @@ async function updateDomainSettings(
       })
     }
     updateData = {
-      settings: {
-        isRampupEnabled: settings.isRampupEnabled === true,
-        maxEmailPerDay,
-        rampupValue,
-        replyRate,
-        status: 'ACTIVE',
-        warmupTagIdentifier,
-      },
+      isRampupEnabled: settings.isRampupEnabled === true,
+      maxEmailPerDay,
+      rampupValue,
+      replyRate,
+      warmupTagIdentifier,
     }
   }
 
-  const endpoint =
-    action === 'tags'
-      ? 'update_tags'
-      : action === 'outbound'
-        ? 'update_outbound'
-        : 'update_warmup'
-
   try {
-    const upstream = await fetch(`${HYPERTIDE_BASE}/${endpoint}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        token: jwt,
-        accounts,
-        domains,
-        ...updateData,
-      }),
-    })
-    const text = await upstream.text()
-    if (upstream.ok) await markSnapshotStale()
+    const emailAccountIds = accountIdsOf(accounts)
+    const outcome = await applyBulkConfig(jwt, emailAccountIds, updateData)
+    if (outcome.updated > 0) await markSnapshotStale()
+
     res.setHeader('cache-control', 'private, max-age=0, no-store')
-    res.status(upstream.status)
-    res.setHeader(
-      'content-type',
-      upstream.headers.get('content-type') ||
-        'application/json; charset=utf-8',
-    )
-    return res.send(text)
+    if (outcome.failed > 0) {
+      // Partial success is reported as a failure so the operator investigates.
+      return res.status(502).json({
+        success: false,
+        error:
+          `${outcome.updated} of ${emailAccountIds.length} inboxes updated. ` +
+          `${outcome.error ?? 'Smartlead rejected the rest.'}`,
+      })
+    }
+    return res.status(200).json({
+      success: true,
+      message: `Updated ${action} for ${outcome.updated} inbox${
+        outcome.updated === 1 ? '' : 'es'
+      } across ${domains.length} domain${domains.length === 1 ? '' : 's'}.`,
+    })
   } catch (error) {
     return res.status(502).json({
       error: `Bulk ${action} update failed: ${
