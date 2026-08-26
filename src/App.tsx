@@ -7,11 +7,16 @@ import type {
   CampaignTagMap,
   DomainBlacklistStatus,
   DomainBounceRisk,
+  CampaignDeleteResult,
+  CampaignOperation,
+  CampaignOperationResult,
   DomainBulkUpdateRequest,
   DomainHealthMetric,
   EmailAccount,
 } from './types'
 import {
+  deleteCampaigns,
+  runCampaignOperation,
   fetchCampaignInbox,
   fetchCampaignSequences,
   executeBulkSync,
@@ -76,6 +81,9 @@ const DEFAULT_PERF_COLUMNS: Record<string, boolean> = {
   tag: false,
   ooo: false,
   status: false,
+  // Companion to the Lifetime/Today/3D filter rather than an everyday metric —
+  // off by default, one click away in the Columns menu.
+  created: false,
 }
 const DEFAULT_TAG_COLUMNS: Record<string, boolean> = {
   ...allVisible(TAG_COLUMNS),
@@ -697,6 +705,36 @@ export default function App() {
     [],
   )
 
+  // Drop the deleted rows locally rather than refetching the whole list; a
+  // partial failure only removes the ids Smartlead actually accepted.
+  const handleDeleteCampaigns = useCallback(
+    async (campaignIds: number[]): Promise<CampaignDeleteResult> => {
+      const result = await deleteCampaigns('', campaignIds)
+      if (result.deleted.length > 0) {
+        const removed = new Set(result.deleted)
+        setCampaigns((cs) => cs.filter((c) => !removed.has(c.campaignId)))
+        setLastUpdated(new Date())
+      }
+      return result
+    },
+    [],
+  )
+
+  // Reallocating mailboxes and rescheduling failed leads both change what
+  // Smartlead will send next, but neither is reflected in the analytics we
+  // already hold, so the affected rows are refreshed rather than patched.
+  const handleRunCampaignOperation = useCallback(
+    async (
+      operation: CampaignOperation,
+      campaignIds: number[],
+    ): Promise<CampaignOperationResult> => {
+      const result = await runCampaignOperation('', operation, campaignIds)
+      if (result.succeeded.length > 0) void refresh()
+      return result
+    },
+    [refresh],
+  )
+
   const fetchSequences = useCallback(
     (campaignId: number) => fetchCampaignSequences('', campaignId),
     [],
@@ -866,6 +904,22 @@ export default function App() {
           </div>
         )}
 
+        <CampaignPerformanceTable
+          rows={perfRows}
+          tagOptions={tagOptions}
+          loading={loading}
+          onUpdateMaxLeads={handleUpdateMaxLeads}
+          onUpdateStatus={handleUpdateStatus}
+          onDeleteCampaigns={handleDeleteCampaigns}
+          onRunCampaignOperation={handleRunCampaignOperation}
+          fetchSequences={fetchSequences}
+          fetchInbox={fetchInbox}
+          fetchSequenceEditor={fetchEditor}
+          saveSequenceEdit={saveEdit}
+          visibleCols={visibleCols}
+          onColumnsChange={setVisibleCols}
+        />
+
         <TagForecastSummary
           tags={tagForecasts}
           loading={loading}
@@ -873,20 +927,6 @@ export default function App() {
           onColumnsChange={setTagCols}
           sentByTag={tagSends}
           reportingDate={reportingDate}
-        />
-
-        <CampaignPerformanceTable
-          rows={perfRows}
-          tagOptions={tagOptions}
-          loading={loading}
-          onUpdateMaxLeads={handleUpdateMaxLeads}
-          onUpdateStatus={handleUpdateStatus}
-          fetchSequences={fetchSequences}
-          fetchInbox={fetchInbox}
-          fetchSequenceEditor={fetchEditor}
-          saveSequenceEdit={saveEdit}
-          visibleCols={visibleCols}
-          onColumnsChange={setVisibleCols}
         />
           </>
         ) : activePage === 'domains' ? (

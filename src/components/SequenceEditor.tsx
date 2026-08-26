@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Portal from './Portal'
 import type {
   CampaignSequencePayload,
   EditableSequence,
@@ -654,6 +655,7 @@ export default function SequenceEditor({
   const sequences = working?.sequences ?? []
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-[55] flex items-center justify-center p-3 sm:p-6">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={requestClose} />
 
@@ -806,5 +808,6 @@ export default function SequenceEditor({
         </div>
       </div>
     </div>
+    </Portal>
   )
 }

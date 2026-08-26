@@ -6,6 +6,7 @@ const EMAILS_PER_LEAD_KEY = 'sl_emails_per_lead'
 // One key per table whose columns can be shown/hidden.
 export const PERF_COLUMNS_KEY = 'sl_visible_columns'
 export const TAG_COLUMNS_KEY = 'sl_tag_columns'
+export const DOMAIN_COLUMNS_KEY = 'sl_domain_columns'
 
 const STATUS_FILTER_KEY = 'sl_status_filter'
 const THEME_KEY = 'sl_theme'

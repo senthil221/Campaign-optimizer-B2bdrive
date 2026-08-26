@@ -22,6 +22,9 @@ import type {
   RawEmailAccount,
   RawSeqVariant,
   RawSequenceStep,
+  CampaignDeleteResult,
+  CampaignOperation,
+  CampaignOperationResult,
   SequenceEditRequest,
   SequenceStat,
   SmartleadTag,
@@ -42,6 +45,8 @@ const CAMPAIGN_GENERAL_SETTINGS_URL = '/api/campaign-general-settings'
 const CAMPAIGN_SEQUENCES_URL = '/api/campaign-sequences'
 const CAMPAIGN_SEQUENCE_EDITOR_URL = '/api/campaign-sequence-editor'
 const CAMPAIGN_STATUS_URL = '/api/campaign-status'
+const CAMPAIGN_DELETE_URL = '/api/campaign-delete'
+const CAMPAIGN_OPERATION_URL = '/api/campaign-operation'
 const CAMPAIGN_INBOX_URL = '/api/campaign-inbox'
 const PROVIDER_PERFORMANCE_URL = '/api/provider-performance'
 const DOMAIN_HEALTH_URL = '/api/domain-health'
@@ -131,6 +136,22 @@ export function normalizeEmailAccount(
   const warmup = raw?.email_warmup_details ?? {}
   const dns = raw?.dns_validation_status ?? {}
 
+  // Smartlead has shipped several names for these over time, and omits them
+  // entirely on some payloads. Read the first one actually present and keep
+  // null otherwise, so the UI can distinguish "zero" from "not reported".
+  const firstNumber = (...values: Array<number | null | undefined>) => {
+    for (const value of values) {
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
+    return null
+  }
+  const firstString = (...values: Array<string | null | undefined>) => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+    return ''
+  }
+
   // Treat an account as disconnected only when Smartlead explicitly reports a
   // failed SMTP/IMAP handshake. Absent fields are assumed connected.
   const connected = raw?.is_smtp_success !== false && raw?.is_imap_success !== false
@@ -154,6 +175,23 @@ export function normalizeEmailAccount(
     dailySentCount: num(raw?.daily_sent_count, 0),
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
+    minTimeBtwnEmails: firstNumber(raw?.min_time_btwn_emails),
+    warmupPerDay: firstNumber(
+      warmup?.total_warmup_per_day,
+      warmup?.warmup_per_day,
+      warmup?.max_email_per_day,
+    ),
+    warmupSentCount: firstNumber(
+      warmup?.total_sent_count,
+      warmup?.sent_count,
+      warmup?.total_warmup_email_sent_count,
+    ),
+    errorMessage: firstString(
+      raw?.error_message,
+      raw?.smtp_error_message,
+      raw?.imap_error_message,
+      raw?.last_error,
+    ),
     connected,
     isInUse,
     dnsSpfVerified: dns?.isSPFVerified === true,
@@ -377,6 +415,132 @@ export async function createSmartleadTag(
   return payload.tag
 }
 
+/**
+ * Permanently delete one Tag Manager tag. Smartlead cascades the delete to
+ * every mailbox mapping, so any inbox carrying the tag simply loses it.
+ */
+export async function deleteSmartleadTag(
+  jwt: string,
+  id: number,
+): Promise<void> {
+  const res = await fetch(TAG_MANAGER_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ mode: 'delete-tag', id }),
+  })
+  const text = await res.text()
+  let payload: { success?: boolean; error?: string } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // Handled by the error below.
+  }
+  if (!res.ok || payload.success === false) {
+    throw new Error(
+      payload.error ||
+        `Delete tag failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+}
+
+/**
+ * Run one per-campaign maintenance action (reallocate mailboxes, reschedule
+ * failed leads) across a selection. Reports per-campaign outcomes so a partial
+ * failure can be retried without re-running the ones that worked.
+ */
+export async function runCampaignOperation(
+  jwt: string,
+  operation: CampaignOperation,
+  ids: number[],
+): Promise<CampaignOperationResult> {
+  const unique = Array.from(
+    new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+  )
+  if (unique.length === 0) {
+    throw new Error('Select at least one campaign.')
+  }
+  const res = await fetch(CAMPAIGN_OPERATION_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ operation, ids: unique }),
+  })
+  const text = await res.text()
+  let payload: Partial<CampaignOperationResult> & { error?: string } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // Handled below.
+  }
+  const result: CampaignOperationResult = {
+    succeeded: Array.isArray(payload.succeeded) ? payload.succeeded : [],
+    failed: Array.isArray(payload.failed) ? payload.failed : [],
+    message: payload.message ?? '',
+  }
+  // A partial run comes back non-2xx but still names what worked, so only a
+  // total failure is thrown.
+  if (!res.ok && result.succeeded.length === 0) {
+    throw new Error(
+      payload.error ||
+        result.message ||
+        `${operation} failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  if (!result.message) {
+    result.message = `Ran ${operation} on ${result.succeeded.length} campaign${
+      result.succeeded.length === 1 ? '' : 's'
+    }.`
+  }
+  return result
+}
+
+/**
+ * Permanently delete campaigns. Returns which ids actually went, so a partial
+ * failure still lets the caller drop the rows that are genuinely gone.
+ */
+export async function deleteCampaigns(
+  jwt: string,
+  ids: number[],
+): Promise<CampaignDeleteResult> {
+  const unique = Array.from(
+    new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+  )
+  if (unique.length === 0) {
+    throw new Error('Select at least one campaign to delete.')
+  }
+  const res = await fetch(CAMPAIGN_DELETE_URL, {
+    method: 'POST',
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ ids: unique }),
+  })
+  const text = await res.text()
+  let payload: Partial<CampaignDeleteResult> & { error?: string } = {}
+  try {
+    payload = JSON.parse(text) as typeof payload
+  } catch {
+    // Handled below.
+  }
+  const result: CampaignDeleteResult = {
+    deleted: Array.isArray(payload.deleted) ? payload.deleted : [],
+    failed: Array.isArray(payload.failed) ? payload.failed : [],
+    message: payload.message ?? '',
+  }
+  // A partial delete comes back non-2xx but still carries the ids that went, so
+  // the caller gets both the removals and the error to show.
+  if (!res.ok && result.deleted.length === 0) {
+    throw new Error(
+      payload.error ||
+        result.message ||
+        `Delete campaigns failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+    )
+  }
+  if (!result.message) {
+    result.message = `Deleted ${result.deleted.length} campaign${
+      result.deleted.length === 1 ? '' : 's'
+    }.`
+  }
+  return result
+}
+
 async function runBulkEmailAccountAction(
   jwt: string,
   mode: 'validate-dns' | 'bulk-reconnect',
@@ -514,7 +678,9 @@ export function extractTagNames(o: Record<string, unknown>): string[] {
 
 export function normalizeCampaign(
   raw: RawCampaignAnalytics,
-  nameInfo: { name: string; status: string; tags: string[] } | undefined,
+  nameInfo:
+    | { name: string; status: string; tags: string[]; createdAt: string | null }
+    | undefined,
 ): Campaign {
   const stats = raw?.campaign_lead_stats ?? {}
   const id = num(raw?.id, 0)
@@ -522,6 +688,7 @@ export function normalizeCampaign(
     campaignId: id,
     campaignName: nameInfo?.name || `Campaign ${id}`,
     nameMissing: !nameInfo?.name,
+    createdAt: nameInfo?.createdAt ?? null,
     apiTags: nameInfo?.tags ?? [],
     sentCount: num(raw?.sent_count, 0),
     replyCount: num(raw?.reply_count, 0),
@@ -1124,6 +1291,10 @@ export async function fetchCampaignList(
         name: o.name != null ? String(o.name) : null,
         status: o.status != null ? String(o.status) : null,
         tags: extractTagNames(o),
+        createdAt:
+          typeof o.created_at === 'string' && o.created_at.trim()
+            ? o.created_at
+            : null,
       })
       added++
     }
@@ -1765,7 +1936,7 @@ export async function loadCampaigns(
   // 1) Resolve names/status/tags from the campaign list (best-effort).
   const nameMap = new Map<
     number,
-    { name: string; status: string; tags: string[] }
+    { name: string; status: string; tags: string[]; createdAt: string | null }
   >()
   const listIds: number[] = []
   let rawSample: unknown = null
@@ -1780,6 +1951,7 @@ export async function loadCampaigns(
         name: item.name ?? '',
         status: item.status ?? '',
         tags: item.tags,
+        createdAt: item.createdAt,
       })
     }
     if (entries.length === 0) {

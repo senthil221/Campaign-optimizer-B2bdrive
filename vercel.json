@@ -7,6 +7,8 @@
     "api/email-accounts.ts": { "maxDuration": 60 }
   },
   "rewrites": [
+    { "source": "/api/campaign-delete", "destination": "/api/campaign-actions?action=delete" },
+    { "source": "/api/campaign-operation", "destination": "/api/campaign-actions?action=operation" },
     { "source": "/api/campaign-status", "destination": "/api/campaign-actions?action=status" },
     { "source": "/api/campaign-sequences", "destination": "/api/campaign-actions?action=sequences" },
     { "source": "/api/campaign-sequence-editor", "destination": "/api/campaign-actions?action=sequence-editor" }

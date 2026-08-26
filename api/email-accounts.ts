@@ -50,7 +50,16 @@ const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
   }
 }`
 
-type BulkAction = 'tags' | 'outbound' | 'warmup'
+// Deleting a tag also drops its mailbox mappings; Smartlead cascades those
+// server-side, so the returned row is only used to confirm the id existed.
+const DELETE_TAG_MUTATION = `mutation deleteTag($id: Int!) {
+  delete_tags_by_pk(id: $id) {
+    id
+    name
+  }
+}`
+
+type BulkAction = 'tags' | 'outbound' | 'warmup' | 'warmup_toggle'
 
 // Older bundles split outbound updates into two half-payload actions. Smartlead
 // replaces the whole outbound settings block, so a half payload silently reset
@@ -205,6 +214,36 @@ async function createTag(
   }
   res.setHeader('cache-control', 'private, max-age=0, no-store')
   return res.status(201).json({ tag })
+}
+
+async function deleteTag(
+  req: VercelRequest,
+  res: VercelResponse,
+  jwt: string,
+) {
+  const id = Number(objectValue(req.body).id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Provide a numeric tag id to delete.' })
+  }
+  const data = await tagGraphqlRequest(jwt, {
+    operationName: 'deleteTag',
+    variables: { id },
+    query: DELETE_TAG_MUTATION,
+  })
+  const deleted = objectValue(data.delete_tags_by_pk)
+  if (!Number(deleted.id)) {
+    return res.status(404).json({
+      error: 'That tag no longer exists in Smartlead.',
+    })
+  }
+  // Mailboxes carry tag mappings, so cached inbox rows are now out of date.
+  await markSnapshotStale()
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  return res.status(200).json({
+    success: true,
+    id,
+    name: String(deleted.name ?? ''),
+  })
 }
 
 async function runBulkEmailAccountAction(
@@ -563,7 +602,7 @@ async function updateDomainSettings(
   const action: BulkAction = OUTBOUND_ACTIONS.has(rawAction)
     ? 'outbound'
     : (rawAction as BulkAction)
-  if (!['tags', 'outbound', 'warmup'].includes(action)) {
+  if (!['tags', 'outbound', 'warmup', 'warmup_toggle'].includes(action)) {
     return res.status(400).json({ error: 'Unknown bulk settings action.' })
   }
 
@@ -709,6 +748,19 @@ async function updateDomainSettings(
       replyRate,
       warmupTagIdentifier,
     }
+    // Enable/Disable sends the whole warmup block plus the on/off flag, not the
+    // flag alone: Smartlead replaces the warmup block wholesale on every write,
+    // exactly as it does for outbound, so a lone flag would reset the rest to
+    // defaults. The block sent is the one the operator can see in the card.
+    if (action === 'warmup_toggle') {
+      const status = String(settings.status ?? '').toUpperCase()
+      if (status !== 'ACTIVE' && status !== 'PAUSED') {
+        return res.status(400).json({
+          error: 'Warmup status must be ACTIVE or PAUSED.',
+        })
+      }
+      updateData.warmupStatus = status
+    }
   }
 
   try {
@@ -726,9 +778,18 @@ async function updateDomainSettings(
           `${outcome.error ?? 'Smartlead rejected the rest.'}`,
       })
     }
+    const verb =
+      action === 'warmup_toggle'
+        ? `${
+            String(objectValue(body.settings).status ?? '').toUpperCase() ===
+            'ACTIVE'
+              ? 'Enabled'
+              : 'Disabled'
+          } warmup on`
+        : `Updated ${action} for`
     return res.status(200).json({
       success: true,
-      message: `Updated ${action} for ${outcome.updated} inbox${
+      message: `${verb} ${outcome.updated} inbox${
         outcome.updated === 1 ? '' : 'es'
       } across ${domains.length} domain${domains.length === 1 ? '' : 's'}.`,
     })
@@ -1119,6 +1180,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       String(body.mode ?? '') === 'create-tag'
     ) {
       return await createTag(req, res, jwt)
+    }
+    if (
+      req.method === 'POST' &&
+      String(body.mode ?? '') === 'delete-tag'
+    ) {
+      return await deleteTag(req, res, jwt)
     }
     if (
       req.method === 'POST' &&

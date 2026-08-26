@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  CampaignDeleteResult,
   CampaignGeneralSettings,
+  CampaignOperation,
+  CampaignOperationResult,
   CampaignPerformance,
   CampaignSequencePayload,
   InboxReply,
@@ -9,12 +12,19 @@ import type {
 } from '../types'
 import type { CampaignStatusAction, InboxQuery } from '../services/smartlead'
 import CampaignInboxDrawer from './CampaignInboxDrawer'
+import Portal from './Portal'
 import SequenceEditor from './SequenceEditor'
 import CampaignStatusBadge from './CampaignStatusBadge'
 import ColumnsMenu from './ColumnsMenu'
 import StatusFilter, { type StatusOption } from './StatusFilter'
 import TagFilter from './TagFilter'
 import { loadStatusFilter, saveStatusFilter } from '../utils/storage'
+import {
+  DATE_RANGES,
+  formatCreated,
+  withinRange,
+  type DateRange,
+} from '../utils/campaignDateRange'
 import { leadBreakdownTitle } from './ProgressBar'
 import { ProgressRing } from './ProgressRing'
 
@@ -29,6 +39,7 @@ interface SeqState {
 export const PERF_COLUMNS = [
   { id: 'tag', label: 'Tag' },
   { id: 'status', label: 'Status' },
+  { id: 'created', label: 'Created' },
   { id: 'sent', label: 'Sent' },
   { id: 'replied', label: 'Replied' },
   { id: 'ooo', label: 'OOO' },
@@ -48,6 +59,11 @@ interface Props {
   loading: boolean
   onUpdateMaxLeads: (campaignId: number, value: number) => Promise<void>
   onUpdateStatus: (campaignId: number, action: CampaignStatusAction) => Promise<void>
+  onDeleteCampaigns: (campaignIds: number[]) => Promise<CampaignDeleteResult>
+  onRunCampaignOperation: (
+    operation: CampaignOperation,
+    campaignIds: number[],
+  ) => Promise<CampaignOperationResult>
   fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
   fetchInbox: (query: InboxQuery) => Promise<InboxReply[]>
   fetchSequenceEditor: (campaignId: number) => Promise<CampaignSequencePayload>
@@ -79,6 +95,26 @@ const TH = 'px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-
 const TD = 'px-4 py-1.5 whitespace-nowrap align-middle tnum tabular-nums'
 
 const UNMAPPED = '__unmapped__'
+
+const OPERATION_LABELS: Record<
+  CampaignOperation,
+  { button: string; busy: string; confirm: string; title: string }
+> = {
+  'reallocate-mailboxes': {
+    button: 'Reallocate',
+    busy: 'Reallocating…',
+    confirm: 'Reallocate mailboxes for',
+    title:
+      'Ask Smartlead to redistribute sending mailboxes across the selected campaigns',
+  },
+  'reschedule-failed-leads': {
+    button: 'Reschedule',
+    busy: 'Rescheduling…',
+    confirm: 'Reschedule failed leads for',
+    title:
+      'Re-queue leads whose sends failed in the selected campaigns — this will send email',
+  },
+}
 
 // Status filter options. "Other" catches any unknown/empty status so nothing
 // is permanently hidden. Order here is the menu order and persisted order.
@@ -474,6 +510,8 @@ export default function CampaignPerformanceTable({
   loading,
   onUpdateMaxLeads,
   onUpdateStatus,
+  onDeleteCampaigns,
+  onRunCampaignOperation,
   fetchSequences,
   fetchInbox,
   fetchSequenceEditor,
@@ -494,6 +532,12 @@ export default function CampaignPerformanceTable({
   const [seqCache, setSeqCache] = useState<Record<number, SeqState>>({})
   const [selected, setSelected] = useState<Set<number>>(() => new Set())
   const [bulkAction, setBulkAction] = useState<CampaignStatusAction | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [dateRange, setDateRange] = useState<DateRange>('lifetime')
+  const [operation, setOperation] = useState<CampaignOperation | null>(null)
   const [bulkNotice, setBulkNotice] = useState<{
     message: string
     error: boolean
@@ -588,6 +632,7 @@ export default function CampaignPerformanceTable({
     const q = search.trim().toLowerCase()
     const statusSet = new Set(statusFilter)
     return rows.filter((r) => {
+      if (!withinRange(r.campaign.createdAt, dateRange)) return false
       if (!statusSet.has(statusBucket(r.status))) return false
       if (tagFilter.length > 0) {
         const inSelection = r.tagName ? tagFilter.includes(r.tagName) : tagFilter.includes(UNMAPPED)
@@ -599,7 +644,7 @@ export default function CampaignPerformanceTable({
         String(r.campaign.campaignId).includes(q)
       )
     })
-  }, [rows, search, tagFilter, statusFilter])
+  }, [rows, search, tagFilter, statusFilter, dateRange])
 
   const sorted = useMemo(() => {
     const val = SORT_VALUE[sort.key]
@@ -675,6 +720,73 @@ export default function CampaignPerformanceTable({
     setSelected(new Set())
   }
 
+  // Reallocate / reschedule both fan out one upstream call per campaign and
+  // change what Smartlead will actually send, so each asks first. Campaigns that
+  // fail stay selected for a retry.
+  const runOperation = async (name: CampaignOperation) => {
+    const campaignIds = Array.from(selected)
+    if (campaignIds.length === 0 || operation || bulkAction) return
+    const label = OPERATION_LABELS[name]
+    if (
+      !window.confirm(
+        `${label.confirm} ${campaignIds.length} selected campaign${
+          campaignIds.length === 1 ? '' : 's'
+        }?`,
+      )
+    ) {
+      return
+    }
+
+    setOperation(name)
+    setBulkNotice(null)
+    try {
+      const result = await onRunCampaignOperation(name, campaignIds)
+      const succeeded = new Set(result.succeeded)
+      const remaining = campaignIds.filter((id) => !succeeded.has(id))
+      setSelected(new Set(remaining))
+      selectionAnchorRef.current = null
+      setBulkNotice({
+        message: result.message,
+        error: result.failed.length > 0,
+      })
+    } catch (error) {
+      setBulkNotice({
+        message: error instanceof Error ? error.message : String(error),
+        error: true,
+      })
+    } finally {
+      setOperation(null)
+    }
+  }
+
+  const runDelete = async () => {
+    const campaignIds = Array.from(selected)
+    if (campaignIds.length === 0 || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    setBulkNotice(null)
+    try {
+      const result = await onDeleteCampaigns(campaignIds)
+      // Keep anything that failed selected so it can be retried, and drop the
+      // rest. A partial delete still carries an error to show.
+      const deleted = new Set(result.deleted)
+      const remaining = campaignIds.filter((id) => !deleted.has(id))
+      setSelected(new Set(remaining))
+      selectionAnchorRef.current = null
+      if (remaining.length === 0) {
+        setDeleteOpen(false)
+        setDeleteConfirmText('')
+        setBulkNotice({ message: result.message, error: false })
+      } else {
+        setDeleteError(result.message)
+      }
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const runBulkStatus = async (action: CampaignStatusAction) => {
     const campaignIds = Array.from(selected)
     if (campaignIds.length === 0 || bulkAction) return
@@ -739,7 +851,7 @@ export default function CampaignPerformanceTable({
   }
 
   return (
-    <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel [animation-delay:80ms]">
+    <section className="animate-rise overflow-hidden rounded-2xl border border-line bg-panel shadow-panel">
       {/* Section header */}
       <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
         <div className="flex items-center gap-3">
@@ -784,6 +896,37 @@ export default function CampaignPerformanceTable({
           selected={statusFilter}
           onChange={setStatusFilter}
         />
+
+        {/* Creation-date range. Lifetime is the default and shows every campaign. */}
+        <div
+          className="flex h-8 overflow-hidden rounded-lg border border-line bg-panel-2 p-0.5"
+          role="group"
+          aria-label="Filter campaigns by creation date"
+        >
+          {DATE_RANGES.map((range) => (
+            <button
+              key={range.id}
+              type="button"
+              onClick={() => setDateRange(range.id)}
+              aria-pressed={dateRange === range.id}
+              title={
+                range.id === 'lifetime'
+                  ? 'Every campaign, regardless of when it was created'
+                  : range.id === 'today'
+                    ? 'Campaigns created today (IST)'
+                    : 'Campaigns created in the last 3 days (IST)'
+              }
+              className={`rounded-md px-2.5 text-[10px] font-medium transition ${
+                dateRange === range.id
+                  ? 'bg-lime-fill text-[#18200c] shadow-sm'
+                  : 'text-muted hover:bg-panel hover:text-ink'
+              }`}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
+
 
         <ColumnsMenu
           columns={PERF_COLUMNS}
@@ -838,6 +981,37 @@ export default function CampaignPerformanceTable({
           >
             {bulkAction === 'STOPPED' ? 'Stopping…' : 'Stop'}
           </button>
+          {(
+            ['reallocate-mailboxes', 'reschedule-failed-leads'] as const
+          ).map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => void runOperation(name)}
+              disabled={
+                selected.size === 0 || bulkAction !== null || operation !== null
+              }
+              title={OPERATION_LABELS[name].title}
+              className="h-7 rounded-md border border-line px-2.5 text-[10px] font-semibold text-muted transition hover:border-lime/40 hover:text-lime disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {operation === name
+                ? OPERATION_LABELS[name].busy
+                : OPERATION_LABELS[name].button}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteConfirmText('')
+              setDeleteError(null)
+              setDeleteOpen(true)
+            }}
+            disabled={selected.size === 0 || bulkAction !== null || deleting}
+            title="Permanently delete the selected campaigns"
+            className="h-7 rounded-md border border-critical/40 bg-critical/10 px-2.5 text-[10px] font-semibold text-critical transition hover:bg-critical/[0.18] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Delete
+          </button>
           {selected.size > 0 && (
             <button
               type="button"
@@ -874,6 +1048,7 @@ export default function CampaignPerformanceTable({
               })}
               {show('tag') && <th className={`${TH} text-left`}>Tag</th>}
               {show('status') && <th className={`${TH} text-left`}>Status</th>}
+              {show('created') && <th className={`${TH} text-left`}>Created</th>}
               {show('sent') && headCell('sent', 'Sent')}
               {show('replied') && headCell('replied', 'Replied')}
               {show('ooo') && headCell('ooo', 'OOO')}
@@ -1023,6 +1198,18 @@ export default function CampaignPerformanceTable({
                     </td>
                   )}
 
+                  {show('created') && (
+                    <td
+                      className={`${TD} text-left text-[12px] text-muted`}
+                      title={
+                        r.campaign.createdAt ??
+                        'Smartlead did not report a creation date for this campaign'
+                      }
+                    >
+                      {formatCreated(r.campaign.createdAt)}
+                    </td>
+                  )}
+
                   {show('sent') && (
                     <td className={`${TD} text-right font-semibold text-ink`}>{fmt(r.sent)}</td>
                   )}
@@ -1133,6 +1320,144 @@ export default function CampaignPerformanceTable({
           </tbody>
         </table>
       </div>
+
+      {deleteOpen && (
+        <Portal>
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-campaigns-title"
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target && !deleting)
+                setDeleteOpen(false)
+            }}
+          >
+            <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-critical/30 bg-panel shadow-2xl">
+              <div className="flex items-start gap-4 border-b border-line px-5 py-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-critical/20 bg-critical/10 text-lg text-critical">
+                  &#128465;
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3
+                    id="delete-campaigns-title"
+                    className="text-[16px] font-semibold text-ink"
+                  >
+                    Delete campaigns
+                  </h3>
+                  <p className="mt-0.5 text-[12px] text-muted">
+                    Permanently removes{' '}
+                    {selected.size.toLocaleString()} campaign
+                    {selected.size === 1 ? '' : 's'} from Smartlead, along with
+                    their leads, sequences and reporting. This cannot be undone.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteOpen(false)}
+                  disabled={deleting}
+                  aria-label="Close delete campaigns"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-xl text-muted transition hover:bg-white/[0.05] hover:text-ink disabled:opacity-50"
+                >
+                  &#215;
+                </button>
+              </div>
+              <div className="space-y-4 p-5">
+                <div className="max-h-56 overflow-y-auto overscroll-contain rounded-xl border border-line bg-panel-2">
+                  <table className="w-full border-collapse text-[11px]">
+                    <thead>
+                      <tr className="border-b border-line text-left text-[9px] uppercase tracking-[0.1em] text-muted/80">
+                        <th className="px-3 py-2 font-medium">Campaign</th>
+                        <th className="px-3 py-2 font-medium">Status</th>
+                        <th className="px-3 py-2 text-right font-medium">Sent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows
+                        .filter((row) => selected.has(row.campaign.campaignId))
+                        .map((row) => (
+                          <tr
+                            key={row.campaign.campaignId}
+                            className="border-b border-line-soft last:border-0"
+                          >
+                            <td className="px-3 py-2 font-medium text-ink">
+                              {row.campaign.campaignName}
+                            </td>
+                            <td className="px-3 py-2 text-muted">
+                              {row.status || '—'}
+                            </td>
+                            <td className="tnum whitespace-nowrap px-3 py-2 text-right text-ink">
+                              {fmt(row.sent)}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {deleteError && (
+                  <div className="rounded-lg border border-critical/25 bg-critical/10 px-3 py-2 text-[11px] text-critical">
+                    {deleteError}
+                  </div>
+                )}
+
+                <label className="block">
+                  <span className="mb-1 block text-[11px] text-muted">
+                    Type{' '}
+                    <span className="font-semibold text-critical">Delete</span>{' '}
+                    to confirm
+                  </span>
+                  <input
+                    autoFocus
+                    value={deleteConfirmText}
+                    onChange={(event) => setDeleteConfirmText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === 'Enter' &&
+                        deleteConfirmText.trim() === 'Delete'
+                      )
+                        void runDelete()
+                    }}
+                    placeholder="Delete"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className={`h-10 w-full rounded-lg border bg-panel-2 px-3 text-[12px] text-ink outline-none placeholder:text-faint ${
+                      deleteConfirmText && deleteConfirmText.trim() !== 'Delete'
+                        ? 'border-critical/60 focus:border-critical'
+                        : 'border-line focus:border-lime/60'
+                    }`}
+                  />
+                </label>
+
+                <div className="flex justify-end gap-2 border-t border-line pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteOpen(false)}
+                    disabled={deleting}
+                    className="h-10 rounded-lg border border-line px-4 text-[11px] font-medium text-muted transition hover:text-ink disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runDelete()}
+                    disabled={
+                      deleting ||
+                      selected.size === 0 ||
+                      deleteConfirmText.trim() !== 'Delete'
+                    }
+                    className="h-10 rounded-lg bg-critical px-5 text-[11px] font-semibold text-white shadow-glow transition hover:bg-critical/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deleting
+                      ? 'Deleting…'
+                      : `Delete ${selected.size} campaign${selected.size === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
       <CampaignInboxDrawer
         query={inbox?.query ?? null}

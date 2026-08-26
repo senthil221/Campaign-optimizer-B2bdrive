@@ -21,6 +21,14 @@ export interface RawTagMapping {
 export interface RawWarmupDetails {
   status?: string | null
   warmup_reputation?: number | string | null
+  /** Warmup emails Smartlead is configured to send per day for this inbox. */
+  total_warmup_per_day?: number | null
+  warmup_per_day?: number | null
+  max_email_per_day?: number | null
+  /** Warmup emails actually sent. Field name varies by Smartlead payload. */
+  total_sent_count?: number | null
+  sent_count?: number | null
+  total_warmup_email_sent_count?: number | null
 }
 
 export interface RawDnsValidationStatus {
@@ -46,6 +54,17 @@ export interface RawEmailAccount {
   email_warmup_details?: RawWarmupDetails | null
   email_account_tag_mappings?: RawTagMapping[] | null
   dns_validation_status?: RawDnsValidationStatus | null
+  /** Minutes Smartlead waits between sends from this inbox. */
+  min_time_btwn_emails?: number | null
+  message_per_day_limit?: number | null
+  /**
+   * Last connection/send error Smartlead recorded for this inbox. Smartlead has
+   * used several names for it, so every observed spelling is read.
+   */
+  error_message?: string | null
+  smtp_error_message?: string | null
+  imap_error_message?: string | null
+  last_error?: string | null
 }
 
 export interface TagSendPerformance {
@@ -99,6 +118,7 @@ export interface RawCampaignListItem {
   id?: number | null
   name?: string | null
   status?: string | null
+  created_at?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +136,17 @@ export interface EmailAccount {
   dailySentCount: number
   warmupStatus: string
   warmupReputation: number
+  /**
+   * Minutes between sends. Null when Smartlead's payload omits the field, so
+   * the column can show "—" rather than a misleading 0.
+   */
+  minTimeBtwnEmails: number | null
+  /** Warmup emails per day this inbox is configured for. Null when unreported. */
+  warmupPerDay: number | null
+  /** Warmup emails sent to date. Null when unreported. */
+  warmupSentCount: number | null
+  /** Last error Smartlead recorded for the inbox; '' when there is none. */
+  errorMessage: string
   /** False when Smartlead reports an SMTP/IMAP connection failure. */
   connected: boolean
   /** True when this inbox is assigned to at least one campaign. */
@@ -148,9 +179,23 @@ export interface DomainManagementRow {
   dailyLimitMin: number
   dailyLimitMax: number
   tagNames: string[]
+  /** Shared min-wait across the domain's inboxes; null when they disagree. */
+  minWait: number | null
+  minWaitMin: number
+  minWaitMax: number
+  /** Shared warmup-per-day across the inboxes; null when they disagree. */
+  warmupPerDay: number | null
+  /** Total warmup emails sent across the domain's inboxes. */
+  warmupSentCount: number
+  /** Inboxes whose Smartlead error mentions an exceeded tenant threshold. */
+  tenantThresholdCount: number
 }
 
-export type DomainSettingsAction = 'tags' | 'outbound' | 'warmup'
+export type DomainSettingsAction =
+  | 'tags'
+  | 'outbound'
+  | 'warmup'
+  | 'warmup_toggle'
 
 export interface DomainTagSettings {
   tags: string[]
@@ -188,7 +233,11 @@ export interface DomainWarmupSettings {
   maxEmailPerDay: number
   rampupValue: number
   replyRate: number
-  status: 'ACTIVE'
+  /**
+   * Only read for the `warmup_toggle` action, which turns warmup on or off.
+   * A plain `warmup` update ignores it and leaves the current state alone.
+   */
+  status: 'ACTIVE' | 'PAUSED'
   warmupTagIdentifier: string
 }
 
@@ -206,6 +255,25 @@ export interface DomainBulkUpdateRequest {
    * the write into one upstream call per distinct current value.
    */
   preserveMessagePerDay?: boolean
+}
+
+/** Outcome of a bulk campaign delete; partial success is reported per id. */
+export interface CampaignDeleteResult {
+  deleted: number[]
+  failed: Array<{ id: number; error: string }>
+  message: string
+}
+
+/** Per-campaign maintenance actions that Smartlead runs one campaign at a time. */
+export type CampaignOperation =
+  | 'reallocate-mailboxes'
+  | 'reschedule-failed-leads'
+
+/** Outcome of running a CampaignOperation across a selection. */
+export interface CampaignOperationResult {
+  succeeded: number[]
+  failed: Array<{ id: number; error: string }>
+  message: string
 }
 
 export interface DomainHealthMetric {
@@ -337,6 +405,12 @@ export interface Campaign {
   campaignId: number
   campaignName: string
   nameMissing: boolean
+  /**
+   * When the campaign was created, from the campaign list. Drives the
+   * Lifetime / Today / 3D filter. null when the list endpoint omits it, and
+   * such campaigns are only ever shown under Lifetime.
+   */
+  createdAt: string | null
   /** Tag names Smartlead returns on the campaign itself (the colored pills). */
   apiTags: string[]
   sentCount: number
@@ -411,6 +485,8 @@ export interface CampaignListEntry {
   name: string | null
   status: string | null
   tags: string[]
+  /** ISO creation timestamp from the campaign list. null when unreported. */
+  createdAt: string | null
 }
 
 export type CampaignStatus =

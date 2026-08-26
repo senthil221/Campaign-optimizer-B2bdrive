@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { InboxReply } from '../types'
 import type { InboxQuery } from '../services/smartlead'
+import Portal from './Portal'
 
 const PAGE_SIZE = 20
 
@@ -249,6 +250,7 @@ export default function CampaignInboxDrawer({
   if (!query) return null
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Overlay */}
       <div
@@ -330,5 +332,6 @@ export default function CampaignInboxDrawer({
         <ReplyFullScreen r={fullscreen} onClose={() => setFullscreen(null)} />
       )}
     </div>
+    </Portal>
   )
 }

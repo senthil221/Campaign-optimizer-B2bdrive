@@ -2,6 +2,41 @@ import type { DomainManagementRow, EmailAccount } from '../types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Smartlead reports a mailbox that has hit its provider's shared sending cap
+ * with a "tenant threshold exceeded" error. Those inboxes keep looking healthy
+ * (connected, warm, DNS valid) while silently failing to send, so the domain
+ * table flags them separately from an ordinary disconnect.
+ */
+export function isTenantThresholdError(message: string): boolean {
+  // Smartlead has phrased this several ways ("Tenant sending threshold has been
+  // exceeded", "tenant threshold exceeded", "TenantThresholdExceeded"), so the
+  // message is flattened to letters and matched on the three words that every
+  // variant shares rather than on one exact wording.
+  const letters = message.toLowerCase().replace(/[^a-z]+/g, ' ')
+  return (
+    letters.includes('tenant') &&
+    letters.includes('threshold') &&
+    letters.includes('exceed')
+  )
+}
+
+/** Shared value across a set, or null when the members disagree. */
+function sharedValue(values: Array<number | null>): {
+  shared: number | null
+  min: number
+  max: number
+} {
+  const known = values.filter((value): value is number => value !== null)
+  if (known.length === 0) return { shared: null, min: 0, max: 0 }
+  const min = Math.min(...known)
+  const max = Math.max(...known)
+  // An inbox with no reported value can't be vouched for, so a partial set
+  // counts as disagreement rather than silently speaking for the whole domain.
+  const shared = min === max && known.length === values.length ? min : null
+  return { shared, min, max }
+}
+
 export function domainFromEmail(email: string): string {
   const normalized = email.trim().toLowerCase()
   const at = normalized.lastIndexOf('@')
@@ -62,6 +97,13 @@ export function buildDomainManagementRows(
           ? 'disabled'
           : 'mixed'
 
+    const minWaits = sharedValue(
+      domainAccounts.map((account) => account.minTimeBtwnEmails),
+    )
+    const warmupPerDays = sharedValue(
+      domainAccounts.map((account) => account.warmupPerDay),
+    )
+
     return {
       domain,
       providerTypes: Array.from(
@@ -95,6 +137,17 @@ export function buildDomainManagementRows(
       dailyLimitMin: limits[0] ?? 0,
       dailyLimitMax: limits[limits.length - 1] ?? 0,
       tagNames,
+      minWait: minWaits.shared,
+      minWaitMin: minWaits.min,
+      minWaitMax: minWaits.max,
+      warmupPerDay: warmupPerDays.shared,
+      warmupSentCount: domainAccounts.reduce(
+        (sum, account) => sum + (account.warmupSentCount ?? 0),
+        0,
+      ),
+      tenantThresholdCount: domainAccounts.filter((account) =>
+        isTenantThresholdError(account.errorMessage),
+      ).length,
     }
   }).sort((a, b) => a.domain.localeCompare(b.domain))
 }

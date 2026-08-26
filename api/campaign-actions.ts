@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+import deleteHandler from '../server/campaign-handlers/delete.js'
+import operationHandler from '../server/campaign-handlers/operations.js'
 import sequenceEditorHandler from '../server/campaign-handlers/sequence-editor.js'
 import sequencesHandler from '../server/campaign-handlers/sequences.js'
 import statusHandler from '../server/campaign-handlers/status.js'
@@ -7,6 +9,8 @@ import statusHandler from '../server/campaign-handlers/status.js'
 type Handler = (req: VercelRequest, res: VercelResponse) => Promise<unknown>
 
 const handlers: Record<string, Handler> = {
+  delete: deleteHandler,
+  operation: operationHandler,
   'sequence-editor': sequenceEditorHandler,
   sequences: sequencesHandler,
   status: statusHandler,
