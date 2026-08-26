@@ -175,16 +175,24 @@ export function normalizeEmailAccount(
     dailySentCount: num(raw?.daily_sent_count, 0),
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
-    minTimeBtwnEmails: firstNumber(raw?.min_time_btwn_emails),
+    minTimeBtwnEmails: firstNumber(
+      raw?.time_to_wait_in_mins,
+      raw?.min_time_to_wait_in_mins,
+      raw?.min_time_btwn_emails,
+    ),
+    // Only the nested warmup object is consulted: the account's top-level
+    // max_email_per_day is the outbound limit, not the warmup one.
     warmupPerDay: firstNumber(
       warmup?.total_warmup_per_day,
       warmup?.warmup_per_day,
       warmup?.max_email_per_day,
+      warmup?.daily_sent_count,
     ),
     warmupSentCount: firstNumber(
       warmup?.total_sent_count,
       warmup?.sent_count,
       warmup?.total_warmup_email_sent_count,
+      warmup?.warmup_email_sent_count,
     ),
     errorMessage: firstString(
       raw?.error_message,

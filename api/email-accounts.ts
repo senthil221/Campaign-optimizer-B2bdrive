@@ -246,6 +246,72 @@ async function deleteTag(
   })
 }
 
+/**
+ * GET /api/email-accounts?mode=fields
+ *
+ * Diagnostic for the Min wait / Warmups per day / Warmup emails sent columns.
+ * Smartlead has renamed these fields between versions, so rather than guessing
+ * at the mapping this reports which keys one real inbox actually carries.
+ *
+ * Deliberately returns no addresses, names or credentials — only key names, the
+ * nested warmup object (counters and status), and the numeric candidates — so
+ * the output is safe to paste into an issue.
+ */
+async function listAccountFields(res: VercelResponse, jwt: string) {
+  const upstream = await fetch(
+    `${SMARTLEAD_BASE}/api/email-account/get-total-email-accounts?offset=0&limit=1`,
+    { method: 'GET', headers: { Authorization: `Bearer ${jwt}` } },
+  )
+  const text = await upstream.text()
+  if (!upstream.ok) {
+    return res.status(upstream.status).json({
+      error: `Could not read a sample inbox (${upstream.status}).`,
+    })
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return res
+      .status(502)
+      .json({ error: 'Smartlead returned a non-JSON account payload.' })
+  }
+
+  const envelope = objectValue(parsed)
+  const rows = Array.isArray(envelope.email_accounts)
+    ? envelope.email_accounts
+    : Array.isArray(parsed)
+      ? parsed
+      : []
+  const account = objectValue(rows[0])
+  if (Object.keys(account).length === 0) {
+    return res.status(404).json({ error: 'No inboxes returned to sample.' })
+  }
+
+  const warmup = objectValue(account.email_warmup_details)
+  const candidates: Record<string, unknown> = {}
+  for (const key of [
+    'time_to_wait_in_mins',
+    'min_time_to_wait_in_mins',
+    'min_time_btwn_emails',
+    'message_per_day',
+    'max_email_per_day',
+    'daily_sent_count',
+  ]) {
+    if (key in account) candidates[key] = account[key]
+  }
+
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  return res.status(200).json({
+    accountKeys: Object.keys(account).sort(),
+    warmupKeys: Object.keys(warmup).sort(),
+    // The warmup object holds only counters, a status and a reputation score.
+    warmupSample: warmup,
+    minWaitCandidates: candidates,
+  })
+}
+
 async function runBulkEmailAccountAction(
   res: VercelResponse,
   jwt: string,
@@ -723,6 +789,18 @@ async function updateDomainSettings(
       })
     }
     updateData = { messagePerDay, minTimeToWaitInMins }
+  } else if (action === 'warmup_toggle') {
+    // Turning warmup on or off is its own one-field write. Smartlead's own UI
+    // sends only { status, dailyReplyLimit } here — the warmup config block is
+    // left alone, so the inbox keeps its per-day, ramp-up and reply-rate values.
+    // ACTIVE resumes warmup; INACTIVE stops it.
+    const status = String(objectValue(body.settings).status ?? '').toUpperCase()
+    if (status !== 'ACTIVE' && status !== 'INACTIVE') {
+      return res.status(400).json({
+        error: 'Warmup status must be ACTIVE or INACTIVE.',
+      })
+    }
+    updateData = { status }
   } else {
     const settings = objectValue(body.settings)
     const maxEmailPerDay = integerInRange(settings.maxEmailPerDay, 0, 1000)
@@ -747,19 +825,6 @@ async function updateDomainSettings(
       rampupValue,
       replyRate,
       warmupTagIdentifier,
-    }
-    // Enable/Disable sends the whole warmup block plus the on/off flag, not the
-    // flag alone: Smartlead replaces the warmup block wholesale on every write,
-    // exactly as it does for outbound, so a lone flag would reset the rest to
-    // defaults. The block sent is the one the operator can see in the card.
-    if (action === 'warmup_toggle') {
-      const status = String(settings.status ?? '').toUpperCase()
-      if (status !== 'ACTIVE' && status !== 'PAUSED') {
-        return res.status(400).json({
-          error: 'Warmup status must be ACTIVE or PAUSED.',
-        })
-      }
-      updateData.warmupStatus = status
     }
   }
 
@@ -1174,6 +1239,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET' && mode === 'tags') {
       return await listTags(res, jwt)
+    }
+    if (req.method === 'GET' && mode === 'fields') {
+      return await listAccountFields(res, jwt)
     }
     if (
       req.method === 'POST' &&

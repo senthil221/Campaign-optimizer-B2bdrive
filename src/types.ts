@@ -21,14 +21,20 @@ export interface RawTagMapping {
 export interface RawWarmupDetails {
   status?: string | null
   warmup_reputation?: number | string | null
-  /** Warmup emails Smartlead is configured to send per day for this inbox. */
+  /**
+   * Warmup emails per day. Read only from inside the warmup object — the
+   * account's own top-level max_email_per_day is the outbound sending limit,
+   * which would show a plausible but wrong number in the warmup column.
+   */
   total_warmup_per_day?: number | null
   warmup_per_day?: number | null
   max_email_per_day?: number | null
+  daily_sent_count?: number | null
   /** Warmup emails actually sent. Field name varies by Smartlead payload. */
   total_sent_count?: number | null
   sent_count?: number | null
   total_warmup_email_sent_count?: number | null
+  warmup_email_sent_count?: number | null
 }
 
 export interface RawDnsValidationStatus {
@@ -54,9 +60,14 @@ export interface RawEmailAccount {
   email_warmup_details?: RawWarmupDetails | null
   email_account_tag_mappings?: RawTagMapping[] | null
   dns_validation_status?: RawDnsValidationStatus | null
-  /** Minutes Smartlead waits between sends from this inbox. */
+  /**
+   * Minutes Smartlead waits between sends. Smartlead's public API calls this
+   * time_to_wait_in_mins; the bulk-config write calls it minTimeToWaitInMins,
+   * so the snake_case form of that is read too.
+   */
+  time_to_wait_in_mins?: number | null
+  min_time_to_wait_in_mins?: number | null
   min_time_btwn_emails?: number | null
-  message_per_day_limit?: number | null
   /**
    * Last connection/send error Smartlead recorded for this inbox. Smartlead has
    * used several names for it, so every observed spelling is read.
@@ -233,12 +244,17 @@ export interface DomainWarmupSettings {
   maxEmailPerDay: number
   rampupValue: number
   replyRate: number
-  /**
-   * Only read for the `warmup_toggle` action, which turns warmup on or off.
-   * A plain `warmup` update ignores it and leaves the current state alone.
-   */
-  status: 'ACTIVE' | 'PAUSED'
+  status: 'ACTIVE'
   warmupTagIdentifier: string
+}
+
+/**
+ * Turning warmup on or off. Smartlead takes this as a one-field write, leaving
+ * the inbox's warmup config (per-day, ramp-up, reply rate) untouched — so this
+ * deliberately carries nothing but the flag.
+ */
+export interface DomainWarmupToggleSettings {
+  status: 'ACTIVE' | 'INACTIVE'
 }
 
 export interface DomainBulkUpdateRequest {
@@ -250,6 +266,7 @@ export interface DomainBulkUpdateRequest {
     | DomainOutboundSettings
     | DomainOutboundPreserveSettings
     | DomainWarmupSettings
+    | DomainWarmupToggleSettings
   /**
    * Outbound only. Keeps every inbox's existing `message_per_day` by splitting
    * the write into one upstream call per distinct current value.
