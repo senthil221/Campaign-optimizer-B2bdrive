@@ -521,7 +521,14 @@ export async function compactAccounts() {
       warmup_reputation::float8 as "warmupReputation", connected,
       is_in_use as "isInUse", dns_spf_verified as "dnsSpfVerified",
       dns_dkim_verified as "dnsDkimVerified", dns_dmarc_verified as "dnsDmarcVerified",
-      dns_last_verified_at as "dnsLastVerifiedAt", tag_ids as "tagIds", tag_names as "tagNames"
+      dns_last_verified_at as "dnsLastVerifiedAt", tag_ids as "tagIds", tag_names as "tagNames",
+      -- Not its own column; read back out of the stored payload. The regex
+      -- guard means a non-numeric value yields null instead of failing the
+      -- whole query, which would take every account down with it.
+      case
+        when raw_account->>'time_to_wait_in_mins' ~ '^[0-9]+$'
+        then (raw_account->>'time_to_wait_in_mins')::int
+      end as "minTimeBtwnEmails"
     from smartlead_accounts
     where tenant_key = ${TENANT_KEY}
     order by smartlead_id

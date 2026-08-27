@@ -8,7 +8,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * (connected, warm, DNS valid) while silently failing to send, so the domain
  * table flags them separately from an ordinary disconnect.
  */
-export function isTenantThresholdError(message: string): boolean {
+export function isTenantThresholdError(
+  message: string | null | undefined,
+): boolean {
+  // Snapshot-sourced accounts can predate this field entirely.
+  if (typeof message !== 'string') return false
   // Smartlead has phrased this several ways ("Tenant sending threshold has been
   // exceeded", "tenant threshold exceeded", "TenantThresholdExceeded"), so the
   // message is flattened to letters and matched on the three words that every
@@ -22,12 +26,15 @@ export function isTenantThresholdError(message: string): boolean {
 }
 
 /** Shared value across a set, or null when the members disagree. */
-function sharedValue(values: Array<number | null>): {
+function sharedValue(values: Array<number | null | undefined>): {
   shared: number | null
   min: number
   max: number
 } {
-  const known = values.filter((value): value is number => value !== null)
+  // `!= null` on purpose: an absent field is as unknown as an explicit null.
+  const known = values.filter(
+    (value): value is number => value != null && Number.isFinite(value),
+  )
   if (known.length === 0) return { shared: null, min: 0, max: 0 }
   const min = Math.min(...known)
   const max = Math.max(...known)
@@ -144,7 +151,7 @@ export function buildDomainManagementRows(
       // Summing nulls as zero would report a confident "0 sent" for inboxes
       // Smartlead simply does not report on, so an all-null domain stays null.
       warmupSentCount: domainAccounts.some(
-        (account) => account.warmupSentCount !== null,
+        (account) => account.warmupSentCount != null,
       )
         ? domainAccounts.reduce(
             (sum, account) => sum + (account.warmupSentCount ?? 0),

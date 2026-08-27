@@ -47,6 +47,39 @@ describe('enterprise domain aggregation', () => {
   })
 })
 
+
+describe('accounts missing newer fields', () => {
+  // The snapshot's SQL projection predates errorMessage, minTimeBtwnEmails,
+  // warmupPerDay and warmupSentCount, so snapshot-sourced accounts arrive
+  // without them and crashed the whole page with
+  // "Cannot read properties of undefined (reading 'toLowerCase')".
+  const legacy = (id: number): EmailAccount => {
+    const full = account(id, 0) as unknown as Record<string, unknown>
+    delete full.errorMessage
+    delete full.minTimeBtwnEmails
+    delete full.warmupPerDay
+    delete full.warmupSentCount
+    return full as unknown as EmailAccount
+  }
+
+  it('builds rows from accounts that predate those fields', () => {
+    expect(() => buildDomainManagementRows([legacy(1), legacy(2)])).not.toThrow()
+
+    const [row] = buildDomainManagementRows([legacy(1), legacy(2)])
+    expect(row.tenantThresholdCount).toBe(0)
+    expect(row.minWait).toBeNull()
+    expect(row.warmupPerDay).toBeNull()
+    expect(row.warmupSentCount).toBeNull()
+  })
+
+  it('treats a missing error message as no error', () => {
+    expect(
+      isTenantThresholdError(undefined as unknown as string),
+    ).toBe(false)
+    expect(isTenantThresholdError(null as unknown as string)).toBe(false)
+  })
+})
+
 describe('tenant threshold detection', () => {
   it('matches every wording Smartlead has used', () => {
     for (const message of [

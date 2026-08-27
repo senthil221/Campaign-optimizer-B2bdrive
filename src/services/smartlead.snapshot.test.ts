@@ -25,6 +25,19 @@ const compactAccount = {
   tagNames: ['Pool A'],
 }
 
+/**
+ * What a snapshot account becomes once the client fills in the fields the SQL
+ * projection does not carry. Written out rather than spread so a future field
+ * added to EmailAccount has to be considered here too.
+ */
+const normalizedCompactAccount = {
+  ...compactAccount,
+  minTimeBtwnEmails: null,
+  warmupPerDay: null,
+  warmupSentCount: null,
+  errorMessage: '',
+}
+
 /** Raw shape the direct Smartlead endpoint returns, for the fallback path. */
 const rawAccount = {
   id: 42,
@@ -66,7 +79,9 @@ describe('Smartlead account snapshot client', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { fetchEmailAccounts } = await import('./smartlead')
 
-    await expect(fetchEmailAccounts('')).resolves.toEqual([compactAccount])
+    await expect(fetchEmailAccounts('')).resolves.toEqual([
+      normalizedCompactAccount,
+    ])
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe('/api/account-snapshot')
   })
@@ -101,7 +116,9 @@ describe('Smartlead account snapshot client', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { fetchEmailAccounts } = await import('./smartlead')
 
-    await expect(fetchEmailAccounts('')).resolves.toEqual([compactAccount])
+    await expect(fetchEmailAccounts('')).resolves.toEqual([
+      normalizedCompactAccount,
+    ])
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST' })
   })

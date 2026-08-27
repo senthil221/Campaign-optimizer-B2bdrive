@@ -803,6 +803,25 @@ interface SnapshotPayload {
   error?: string
 }
 
+/**
+ * The snapshot's SQL projection has trailed EmailAccount more than once, and
+ * rows written by an older deploy can be missing any field added since. Fill
+ * the gaps here, at the one boundary they enter through, rather than making
+ * every consumer defend itself -- a missing errorMessage previously took the
+ * whole Domain Management page down with a TypeError.
+ */
+function withAccountDefaults(account: EmailAccount): EmailAccount {
+  return {
+    ...account,
+    minTimeBtwnEmails: account.minTimeBtwnEmails ?? null,
+    warmupPerDay: account.warmupPerDay ?? null,
+    warmupSentCount: account.warmupSentCount ?? null,
+    errorMessage: account.errorMessage ?? '',
+    tagIds: account.tagIds ?? [],
+    tagNames: account.tagNames ?? [],
+  }
+}
+
 async function snapshotRequest(
   jwt: string,
 ): Promise<SnapshotPayload | null> {
@@ -822,6 +841,9 @@ async function snapshotRequest(
   }
   const payload = JSON.parse(text) as SnapshotPayload
   snapshotAvailable = payload.status?.enabled === true
+  if (Array.isArray(payload.accounts)) {
+    payload.accounts = payload.accounts.map(withAccountDefaults)
+  }
   return payload
 }
 
