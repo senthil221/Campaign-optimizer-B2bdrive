@@ -895,8 +895,16 @@ export async function fetchEmailAccounts(
   try {
     await continueSnapshotSync(jwt, false)
     const completed = await snapshotRequest(jwt)
-    if (completed?.status?.phase === 'complete') {
-      return completed.accounts ?? []
+    const synced = completed?.accounts ?? []
+    // "Complete" plus zero rows is ambiguous: it means either an empty
+    // workspace or a database the sync cannot actually read back -- row-level
+    // security with no policy returns zero rows rather than an error, so the
+    // sync reports success and the page renders empty with nothing to explain
+    // it. Only a non-empty result is trusted; otherwise fall through to the
+    // direct read, which settles it and costs one request when the workspace
+    // really is empty.
+    if (completed?.status?.phase === 'complete' && synced.length > 0) {
+      return synced
     }
   } catch {
     // Fall through to the direct read; the sync resumes on the next visit

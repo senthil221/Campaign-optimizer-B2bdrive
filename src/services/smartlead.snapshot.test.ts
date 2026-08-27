@@ -172,4 +172,56 @@ describe('Smartlead account snapshot client', () => {
 
     await expect(fetchEmailAccounts('')).resolves.toHaveLength(1)
   })
+
+  // Row-level security with no policy returns zero rows instead of an error, so
+  // the sync reports "complete" over a database it cannot read. Trusting that
+  // renders an empty Domain Management page with nothing to explain it.
+  it('falls back when a complete snapshot holds no accounts', async () => {
+    const completeButEmpty = {
+      enabled: true,
+      ready: true,
+      stale: false,
+      syncing: false,
+      phase: 'complete',
+      offset: 0,
+      fetched: 0,
+      accountCount: 0,
+      error: null,
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      String(url).startsWith('/api/account-snapshot')
+        ? Promise.resolve(response({ accounts: [], status: completeButEmpty }))
+        : Promise.resolve(response({ email_accounts: [rawAccount] })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { fetchEmailAccounts } = await import('./smartlead')
+
+    const accounts = await fetchEmailAccounts('')
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0].fromEmail).toBe('sender@example.com')
+  })
+
+  // A workspace with genuinely no inboxes must still come back clean, not error.
+  it('returns an empty list when Smartlead itself has no inboxes', async () => {
+    const completeButEmpty = {
+      enabled: true,
+      ready: true,
+      stale: false,
+      syncing: false,
+      phase: 'complete',
+      offset: 0,
+      fetched: 0,
+      accountCount: 0,
+      error: null,
+    }
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      String(url).startsWith('/api/account-snapshot')
+        ? Promise.resolve(response({ accounts: [], status: completeButEmpty }))
+        : Promise.resolve(response({ email_accounts: [] })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { fetchEmailAccounts } = await import('./smartlead')
+
+    await expect(fetchEmailAccounts('')).resolves.toEqual([])
+  })
 })
