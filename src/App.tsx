@@ -69,6 +69,7 @@ import CampaignPerformanceTable, {
 import DomainHealthPage from './components/DomainHealthPage'
 import DomainManagementPage from './components/DomainManagementPage'
 import BulkSyncModal from './components/BulkSyncModal'
+import ErrorBoundary from './components/ErrorBoundary'
 import { buildDomainHealthRows } from './utils/domainHealth'
 import { domainFromEmail, isValidDomain } from './utils/domainManagement'
 
@@ -863,6 +864,16 @@ export default function App() {
       />
 
       <main className="mx-auto max-w-[1440px] space-y-5 px-6 py-7 lg:px-10">
+        <ErrorBoundary
+          label={
+            activePage === 'campaigns'
+              ? 'Campaigns'
+              : activePage === 'domains'
+                ? 'Domain health'
+                : 'Domain management'
+          }
+          resetKey={activePage}
+        >
         {activePage === 'campaigns' ? (
           <>
           {error && (
@@ -962,6 +973,7 @@ export default function App() {
             onDeleteInboxes={handleDeleteInboxes}
           />
         )}
+        </ErrorBoundary>
       </main>
       {bulkSyncSelection && (
         <BulkSyncModal
