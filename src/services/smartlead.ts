@@ -887,12 +887,25 @@ export async function fetchEmailAccounts(
     return accounts
   }
 
-  await continueSnapshotSync(jwt, false)
-  const completed = await snapshotRequest(jwt)
-  if (completed?.status?.phase === 'complete') {
-    return completed.accounts ?? []
+  // An empty snapshot means a fresh install: try to build it, but never let
+  // that stand between the operator and their inboxes. A project pointed at a
+  // brand-new or misconfigured database would otherwise fail every page that
+  // needs accounts, even though reading Smartlead directly still works -- the
+  // same reason a snapshot read failure falls back above.
+  try {
+    await continueSnapshotSync(jwt, false)
+    const completed = await snapshotRequest(jwt)
+    if (completed?.status?.phase === 'complete') {
+      return completed.accounts ?? []
+    }
+  } catch {
+    // Fall through to the direct read; the sync resumes on the next visit
+    // without losing the pages it already stored.
   }
-  throw new Error('Smartlead synchronization did not produce a complete snapshot.')
+  // Bulk settings writes must not claim the snapshot can resolve domains for
+  // them while it is still incomplete.
+  snapshotAvailable = false
+  return fetchEmailAccountsDirect(jwt)
 }
 
 /**
