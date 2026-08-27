@@ -1,0 +1,6 @@
+# Vercel turns every file under api/ into a Serverless Function, and the Hobby
+# plan allows 12. Test files are not endpoints, so keep them out of the
+# deployment entirely -- an api/*.test.ts file otherwise fails the build with
+# "No more than 12 Serverless Functions can be added to a Deployment".
+*.test.ts
+*.test.tsx

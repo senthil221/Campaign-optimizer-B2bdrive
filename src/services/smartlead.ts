@@ -174,9 +174,8 @@ export function normalizeEmailAccount(
     // guessed at, so the columns show "not reported" instead of a wrong number.
     warmupPerDay: null,
     warmupSentCount: null,
-    warmupBlocked: warmup?.is_warmup_blocked === true,
-    // No error string is returned by this endpoint either, so nothing can be
-    // matched against it yet.
+    // This endpoint returns no error string, so the tenant-threshold flag has
+    // nothing to match on until a source that carries one is wired up.
     errorMessage: '',
     connected,
     isInUse,

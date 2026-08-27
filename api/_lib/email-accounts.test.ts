@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-import handler from './email-accounts.js'
+import handler from '../email-accounts.js'
 
 interface Captured {
   status: number

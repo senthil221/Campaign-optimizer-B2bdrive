@@ -27,7 +27,11 @@ export interface RawTagMapping {
 export interface RawWarmupDetails {
   status?: string | null
   warmup_reputation?: number | string | null
-  /** True when Smartlead has stopped warming this inbox. */
+  /**
+   * True when Smartlead has stopped warming this inbox. Recorded because it is
+   * on the payload, but deliberately unused: a blocked warmup is its own
+   * condition and is not a signal that a tenant sending threshold was hit.
+   */
   is_warmup_blocked?: boolean | null
 }
 
@@ -146,9 +150,11 @@ export interface EmailAccount {
    */
   warmupPerDay: number | null
   warmupSentCount: number | null
-  /** True when Smartlead has stopped warming this inbox. */
-  warmupBlocked: boolean
-  /** Last error Smartlead recorded for the inbox; '' when there is none. */
+  /**
+   * Last error Smartlead recorded for the inbox, which the tenant-threshold
+   * flag matches against. Always '' today: the account list carries no error
+   * string, so no source has been wired up yet.
+   */
   errorMessage: string
   /** False when Smartlead reports an SMTP/IMAP connection failure. */
   connected: boolean
