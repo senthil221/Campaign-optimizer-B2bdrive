@@ -141,10 +141,16 @@ export function buildDomainManagementRows(
       minWaitMin: minWaits.min,
       minWaitMax: minWaits.max,
       warmupPerDay: warmupPerDays.shared,
-      warmupSentCount: domainAccounts.reduce(
-        (sum, account) => sum + (account.warmupSentCount ?? 0),
-        0,
-      ),
+      // Summing nulls as zero would report a confident "0 sent" for inboxes
+      // Smartlead simply does not report on, so an all-null domain stays null.
+      warmupSentCount: domainAccounts.some(
+        (account) => account.warmupSentCount !== null,
+      )
+        ? domainAccounts.reduce(
+            (sum, account) => sum + (account.warmupSentCount ?? 0),
+            0,
+          )
+        : null,
       tenantThresholdCount: domainAccounts.filter((account) =>
         isTenantThresholdError(account.errorMessage),
       ).length,

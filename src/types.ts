@@ -18,23 +18,17 @@ export interface RawTagMapping {
   tag?: RawTag | null
 }
 
+/**
+ * Confirmed shape of email_warmup_details on
+ * /api/email-account/get-total-email-accounts: status, reputation and a
+ * blocked flag. Notably it carries neither a per-day warmup limit nor a sent
+ * counter, so those two columns cannot be filled from the account list.
+ */
 export interface RawWarmupDetails {
   status?: string | null
   warmup_reputation?: number | string | null
-  /**
-   * Warmup emails per day. Read only from inside the warmup object — the
-   * account's own top-level max_email_per_day is the outbound sending limit,
-   * which would show a plausible but wrong number in the warmup column.
-   */
-  total_warmup_per_day?: number | null
-  warmup_per_day?: number | null
-  max_email_per_day?: number | null
-  daily_sent_count?: number | null
-  /** Warmup emails actually sent. Field name varies by Smartlead payload. */
-  total_sent_count?: number | null
-  sent_count?: number | null
-  total_warmup_email_sent_count?: number | null
-  warmup_email_sent_count?: number | null
+  /** True when Smartlead has stopped warming this inbox. */
+  is_warmup_blocked?: boolean | null
 }
 
 export interface RawDnsValidationStatus {
@@ -61,21 +55,13 @@ export interface RawEmailAccount {
   email_account_tag_mappings?: RawTagMapping[] | null
   dns_validation_status?: RawDnsValidationStatus | null
   /**
-   * Minutes Smartlead waits between sends. Smartlead's public API calls this
-   * time_to_wait_in_mins; the bulk-config write calls it minTimeToWaitInMins,
-   * so the snake_case form of that is read too.
+   * Minutes Smartlead waits between sends. The bulk-config write calls this
+   * minTimeToWaitInMins; the account list returns it as time_to_wait_in_mins.
    */
   time_to_wait_in_mins?: number | null
-  min_time_to_wait_in_mins?: number | null
-  min_time_btwn_emails?: number | null
-  /**
-   * Last connection/send error Smartlead recorded for this inbox. Smartlead has
-   * used several names for it, so every observed spelling is read.
-   */
-  error_message?: string | null
-  smtp_error_message?: string | null
-  imap_error_message?: string | null
-  last_error?: string | null
+  /** INSUFFICIENT_DATA / etc. The account list carries no error string. */
+  health_status?: string | null
+  total_spam_count?: number | null
 }
 
 export interface TagSendPerformance {
@@ -152,10 +138,16 @@ export interface EmailAccount {
    * the column can show "—" rather than a misleading 0.
    */
   minTimeBtwnEmails: number | null
-  /** Warmup emails per day this inbox is configured for. Null when unreported. */
+/**
+   * Warmup emails per day, and warmup emails sent to date. Smartlead's account
+   * list reports neither, so both are currently always null and their columns
+   * render as "not reported". They stay on the model so a future warmup-stats
+   * source can fill them without touching the table.
+   */
   warmupPerDay: number | null
-  /** Warmup emails sent to date. Null when unreported. */
   warmupSentCount: number | null
+  /** True when Smartlead has stopped warming this inbox. */
+  warmupBlocked: boolean
   /** Last error Smartlead recorded for the inbox; '' when there is none. */
   errorMessage: string
   /** False when Smartlead reports an SMTP/IMAP connection failure. */
@@ -196,8 +188,9 @@ export interface DomainManagementRow {
   minWaitMax: number
   /** Shared warmup-per-day across the inboxes; null when they disagree. */
   warmupPerDay: number | null
-  /** Total warmup emails sent across the domain's inboxes. */
-  warmupSentCount: number
+  /** Total warmup emails sent across the domain's inboxes; null when none of
+   * them report it, so the column can say "not reported" rather than "0". */
+  warmupSentCount: number | null
   /** Inboxes whose Smartlead error mentions an exceeded tenant threshold. */
   tenantThresholdCount: number
 }

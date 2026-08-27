@@ -145,12 +145,6 @@ export function normalizeEmailAccount(
     }
     return null
   }
-  const firstString = (...values: Array<string | null | undefined>) => {
-    for (const value of values) {
-      if (typeof value === 'string' && value.trim()) return value.trim()
-    }
-    return ''
-  }
 
   // Treat an account as disconnected only when Smartlead explicitly reports a
   // failed SMTP/IMAP handshake. Absent fields are assumed connected.
@@ -175,31 +169,15 @@ export function normalizeEmailAccount(
     dailySentCount: num(raw?.daily_sent_count, 0),
     warmupStatus: String(warmup?.status ?? 'UNKNOWN'),
     warmupReputation: num(warmup?.warmup_reputation, 0),
-    minTimeBtwnEmails: firstNumber(
-      raw?.time_to_wait_in_mins,
-      raw?.min_time_to_wait_in_mins,
-      raw?.min_time_btwn_emails,
-    ),
-    // Only the nested warmup object is consulted: the account's top-level
-    // max_email_per_day is the outbound limit, not the warmup one.
-    warmupPerDay: firstNumber(
-      warmup?.total_warmup_per_day,
-      warmup?.warmup_per_day,
-      warmup?.max_email_per_day,
-      warmup?.daily_sent_count,
-    ),
-    warmupSentCount: firstNumber(
-      warmup?.total_sent_count,
-      warmup?.sent_count,
-      warmup?.total_warmup_email_sent_count,
-      warmup?.warmup_email_sent_count,
-    ),
-    errorMessage: firstString(
-      raw?.error_message,
-      raw?.smtp_error_message,
-      raw?.imap_error_message,
-      raw?.last_error,
-    ),
+    minTimeBtwnEmails: firstNumber(raw?.time_to_wait_in_mins),
+    // The account list reports neither of these. Kept as null rather than
+    // guessed at, so the columns show "not reported" instead of a wrong number.
+    warmupPerDay: null,
+    warmupSentCount: null,
+    warmupBlocked: warmup?.is_warmup_blocked === true,
+    // No error string is returned by this endpoint either, so nothing can be
+    // matched against it yet.
+    errorMessage: '',
     connected,
     isInUse,
     dnsSpfVerified: dns?.isSPFVerified === true,

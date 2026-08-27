@@ -880,9 +880,6 @@ export default function DomainHealthPage({
                 </button>
               </>
             )}
-            <span className="hidden text-[10px] text-faint xl:inline">
-              Shift-click checkboxes to select a range
-            </span>
             <input
               type="search"
               value={search}

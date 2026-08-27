@@ -27,6 +27,7 @@ function account(id: number, domainIndex: number): EmailAccount {
     minTimeBtwnEmails: 15,
     warmupPerDay: 9,
     warmupSentCount: id % 40,
+    warmupBlocked: false,
     errorMessage: '',
   }
 }

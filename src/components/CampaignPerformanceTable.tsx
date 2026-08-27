@@ -933,8 +933,11 @@ export default function CampaignPerformanceTable({
           visibleCols={visibleCols}
           onColumnsChange={onColumnsChange}
         />
+      </div>
 
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+      {/* Selection actions, on their own row so they stay aligned as the
+          selection count and notice change width. */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2">
           {bulkNotice && (
             <span
               role="status"
@@ -945,9 +948,6 @@ export default function CampaignPerformanceTable({
               {bulkNotice.message}
             </span>
           )}
-          <span className="hidden text-[10px] text-faint 2xl:inline">
-            Shift-click to select a range
-          </span>
           <span
             className={`tnum rounded-md px-2 py-1 text-[10px] font-medium ${
               selected.size > 0
@@ -1022,7 +1022,6 @@ export default function CampaignPerformanceTable({
               Clear
             </button>
           )}
-        </div>
       </div>
 
       {/* Table */}
