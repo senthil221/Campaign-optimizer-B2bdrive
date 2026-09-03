@@ -8,7 +8,7 @@ import type {
 
 export interface BulkSyncSelection {
   plan: BulkSyncPlan
-  activeCampaigns: number
+  totalCampaigns: number
   skipped: {
     noMatchingTag: number
     ambiguousTag: number
@@ -23,9 +23,12 @@ function tagKey(value: string): string {
 /**
  * Build the safe, automatic portion of a bulk sync.
  *
- * A campaign is included only when exactly one of its campaign tags has an
- * exact, case-insensitive match to an email-account tag. Explicitly
- * disconnected accounts are excluded by the normalized `connected` flag.
+ * Every campaign is considered regardless of status (Active, Paused,
+ * Completed, …) — Bulk Sync keeps sender pools aligned with tags across the
+ * whole account, not just campaigns currently running. A campaign is
+ * included only when exactly one of its campaign tags has an exact,
+ * case-insensitive match to an email-account tag. Explicitly disconnected
+ * accounts are excluded by the normalized `connected` flag.
  */
 export function buildBulkSyncSelection(
   campaigns: Campaign[],
@@ -54,11 +57,8 @@ export function buildBulkSyncSelection(
   const targets: BulkSyncCampaignTarget[] = []
   const usedPoolKeys = new Set<string>()
   const skipped = { noMatchingTag: 0, ambiguousTag: 0, emptyPool: 0 }
-  const active = campaigns.filter(
-    (campaign) => campaign.status.trim().toUpperCase() === 'ACTIVE',
-  )
 
-  for (const campaign of active) {
+  for (const campaign of campaigns) {
     const matches = new Map<string, { tagName: string; accountIds: Set<number> }>()
     for (const rawName of campaign.apiTags) {
       const key = tagKey(rawName)
@@ -107,7 +107,7 @@ export function buildBulkSyncSelection(
 
   return {
     plan: { campaigns: targets, pools },
-    activeCampaigns: active.length,
+    totalCampaigns: campaigns.length,
     skipped,
   }
 }

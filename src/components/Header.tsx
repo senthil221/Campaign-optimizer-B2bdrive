@@ -147,7 +147,7 @@ export default function Header({
               onClick={onBulkSync}
               disabled={loading || bulkSyncLoading}
               className="inline-flex items-center gap-2 rounded-xl border border-lime/35 bg-lime/[0.07] px-3.5 py-2 text-[13px] font-bold text-lime transition hover:border-lime/55 hover:bg-lime/[0.12] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
-              title="Match active campaign tags to email-account tags"
+              title="Match campaign tags to email-account tags"
             >
               <span className={bulkSyncLoading ? 'inline-block animate-spin' : ''}>⇄</span>
               <span className="hidden sm:inline">Bulk Sync</span>

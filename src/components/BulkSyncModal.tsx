@@ -79,7 +79,7 @@ export default function BulkSyncModal({
               Bulk Sync
             </h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
-              Exact-match active campaign tags to email-account tags, then make each
+              Exact-match campaign tags to email-account tags, then make each
               campaign&apos;s sender list match its connected tag pool.
             </p>
           </div>
@@ -96,7 +96,7 @@ export default function BulkSyncModal({
 
         <div className="flex-1 space-y-4 overflow-auto px-5 py-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Active campaigns" value={selection.activeCampaigns} />
+            <Stat label="All campaigns" value={selection.totalCampaigns} />
             <Stat label="Exact matches" value={selection.plan.campaigns.length} tone="lime" />
             <Stat label="Need changes" value={changed.length} tone={changed.length ? 'warn' : 'default'} />
             <Stat label="Skipped safely" value={skippedTotal} />
@@ -154,7 +154,7 @@ export default function BulkSyncModal({
             <div className="grid place-items-center rounded-xl border border-line bg-panel-2/30 px-4 py-12 text-center">
               <div className="text-sm font-semibold text-ink">No campaigns are eligible</div>
               <div className="mt-1 max-w-md text-xs text-muted">
-                Active campaigns need exactly one campaign tag that matches an email-account tag with connected accounts.
+                Campaigns need exactly one campaign tag that matches an email-account tag with connected accounts.
               </div>
             </div>
           )}
