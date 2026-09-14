@@ -116,35 +116,75 @@ describe('warmup enable/disable', () => {
   })
 })
 
+/** The warmup config block, as the Domain Management card sends it. */
+function warmupSettings(overrides: Record<string, unknown> = {}) {
+  return {
+    action: 'warmup',
+    domains: ['acme.com'],
+    accounts: ACCOUNTS,
+    settings: {
+      isRampupEnabled: false,
+      maxEmailPerDay: 9,
+      warmupMinCount: 7,
+      warmupMaxCount: 9,
+      rampupValue: 1,
+      replyRate: 60,
+      status: 'ACTIVE',
+      warmupTagIdentifier: 'hey-there',
+      ...overrides,
+    },
+  }
+}
+
 describe('warmup settings update', () => {
   it('still writes the config block, without a status field', async () => {
     const { res, captured } = fakeRes()
-    await handler(
-      fakeReq({
-        action: 'warmup',
-        domains: ['acme.com'],
-        accounts: ACCOUNTS,
-        settings: {
-          isRampupEnabled: false,
-          maxEmailPerDay: 9,
-          rampupValue: 1,
-          replyRate: 60,
-          status: 'ACTIVE',
-          warmupTagIdentifier: 'hey-there',
-        },
-      }),
-      res,
-    )
+    await handler(fakeReq(warmupSettings()), res)
 
     expect(captured.status).toBe(200)
-    // A status key here is what produced the 400; it must not be sent.
+    // Status is carried by the separate warmup_toggle write, so that pressing
+    // "Update warmup settings" cannot silently switch warmup back on.
     expect(calls[0].body.updateData).toEqual({
       dailyReplyLimit: null,
       isRampupEnabled: false,
       maxEmailPerDay: 9,
+      warmupMinCount: 7,
+      warmupMaxCount: 9,
       rampupValue: 1,
       replyRate: 60,
       warmupTagIdentifier: 'hey-there',
     })
+  })
+
+  // The randomise range is what let an inbox send 4 warmups on a 9-email day.
+  // These names come from Smartlead's own bulk payload, so they are pinned.
+  it('sends the randomise range Smartlead uses for warmup volume', async () => {
+    const { res } = fakeRes()
+    await handler(
+      fakeReq(
+        warmupSettings({
+          maxEmailPerDay: 4,
+          warmupMinCount: 3,
+          warmupMaxCount: 4,
+        }),
+      ),
+      res,
+    )
+
+    const updateData = calls[0].body.updateData as Record<string, unknown>
+    expect(updateData.warmupMinCount).toBe(3)
+    expect(updateData.warmupMaxCount).toBe(4)
+    expect(updateData.maxEmailPerDay).toBe(4)
+  })
+
+  it('rejects a minimum above the maximum instead of writing it', async () => {
+    const { res, captured } = fakeRes()
+    await handler(
+      fakeReq(warmupSettings({ warmupMinCount: 9, warmupMaxCount: 4 })),
+      res,
+    )
+
+    expect(captured.status).toBe(400)
+    expect(calls).toHaveLength(0)
   })
 })

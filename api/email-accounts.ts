@@ -804,6 +804,8 @@ async function updateDomainSettings(
   } else {
     const settings = objectValue(body.settings)
     const maxEmailPerDay = integerInRange(settings.maxEmailPerDay, 0, 1000)
+    const warmupMinCount = integerInRange(settings.warmupMinCount, 0, 1000)
+    const warmupMaxCount = integerInRange(settings.warmupMaxCount, 0, 1000)
     const rampupValue = integerInRange(settings.rampupValue, 0, 1000)
     const replyRate = integerInRange(settings.replyRate, 0, 100)
     const warmupTagIdentifier = String(
@@ -811,6 +813,8 @@ async function updateDomainSettings(
     ).trim()
     if (
       maxEmailPerDay === null ||
+      warmupMinCount === null ||
+      warmupMaxCount === null ||
       rampupValue === null ||
       replyRate === null ||
       warmupTagIdentifier.length > 100
@@ -819,9 +823,18 @@ async function updateDomainSettings(
         error: 'Warmup settings contain an invalid value.',
       })
     }
+    if (warmupMinCount > warmupMaxCount) {
+      return res.status(400).json({
+        error: 'Minimum warmups per day cannot exceed the maximum.',
+      })
+    }
     updateData = {
       isRampupEnabled: settings.isRampupEnabled === true,
       maxEmailPerDay,
+      // Smartlead picks a different count each day between these two, which is
+      // why an inbox with a 4-9 range can send only 4 warmups on a given day.
+      warmupMinCount,
+      warmupMaxCount,
       rampupValue,
       replyRate,
       warmupTagIdentifier,

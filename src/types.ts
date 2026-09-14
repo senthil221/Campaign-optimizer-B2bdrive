@@ -240,7 +240,14 @@ export interface DomainOutboundGroupResult {
 
 export interface DomainWarmupSettings {
   isRampupEnabled: boolean
+  /**
+   * Smartlead randomises each day's warmup volume between these two counts,
+   * and its own payload keeps `maxEmailPerDay` equal to `warmupMaxCount` — so
+   * both are written from the same "max warmup / day" field.
+   */
   maxEmailPerDay: number
+  warmupMinCount: number
+  warmupMaxCount: number
   rampupValue: number
   replyRate: number
   status: 'ACTIVE'
