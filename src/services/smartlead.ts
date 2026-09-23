@@ -2000,8 +2000,14 @@ export async function loadCampaigns(
       : Array.from(new Set(listIds))
 
   if (ids.length === 0) {
+    // The list failure above is collected as a warning, but throwing here
+    // drops the warning array on the floor — so the operator saw "returned
+    // nothing" when the real cause was an upstream 401 or 503. Carry it.
     throw new Error(
-      'No campaign IDs available. The campaign list endpoint returned nothing — paste campaign IDs manually to continue.',
+      [
+        'No campaign IDs available. The campaign list endpoint returned nothing — paste campaign IDs manually to continue.',
+        ...warnings,
+      ].join(' '),
     )
   }
 
