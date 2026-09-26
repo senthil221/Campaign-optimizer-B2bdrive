@@ -316,7 +316,17 @@ export default function App() {
         await Promise.allSettled([
           refreshAccounts ? fetchEmailAccounts('') : Promise.resolve(null),
           fetchDomainHealthMetrics('', startDate, endDate),
-          fetchDomainBounceRisks('', startDate, endDate),
+          // Only campaigns with any bounce can contribute a bounce risk.
+          fetchDomainBounceRisks(
+            '',
+            startDate,
+            endDate,
+            campaignsRef.current
+              .filter(
+                (c) => c.bounceCount > 0 || (c.leadStats?.senderBounced ?? 0) > 0,
+              )
+              .map((c) => c.campaignId),
+          ),
         ])
 
       const failures: string[] = []
@@ -554,7 +564,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (activePage === 'domains' && !domainLoaded && !domainLoading) {
+    // Waits for the campaign list: bounce risks are scanned per campaign, and
+    // an empty list would read as "no risks".
+    if (activePage === 'domains' && !domainLoaded && !domainLoading && !loading) {
       void applyDomainRange()
     }
   }, [
@@ -562,6 +574,7 @@ export default function App() {
     applyDomainRange,
     domainLoaded,
     domainLoading,
+    loading,
   ])
 
   useEffect(() => {

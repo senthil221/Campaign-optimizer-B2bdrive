@@ -1053,39 +1053,14 @@ export async function fetchDomainHealthMetrics(
     .filter((row): row is DomainHealthMetric => row !== null)
 }
 
-export async function fetchDomainBounceRisks(
-  jwt: string,
-  startDate: string,
-  endDate: string,
-): Promise<DomainBounceRisk[]> {
-  const params = new URLSearchParams({
-    start: startDate,
-    end: endDate,
-    mode: 'risks',
-  })
-  const res = await fetch(`${DOMAIN_HEALTH_URL}?${params}`, {
-    method: 'GET',
-    headers: authHeaders(jwt),
-  })
-  const text = await res.text()
-  if (!res.ok) {
-    throw new Error(
-      `Inbox risk request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-    )
-  }
+const BOUNCE_RISK_CATEGORIES = new Set([
+  'tenant_threshold',
+  'spam_rejected',
+  'sender_550',
+])
 
-  let json: unknown
-  try {
-    json = JSON.parse(text)
-  } catch {
-    throw new Error(`Inbox risk response was not valid JSON: ${preview(text)}`)
-  }
-
-  const categories = new Set([
-    'tenant_threshold',
-    'spam_rejected',
-    'sender_550',
-  ])
+function parseDomainBounceRisks(json: unknown): DomainBounceRisk[] {
+  const categories = BOUNCE_RISK_CATEGORIES
   const rows = extractArray(json, ['risks']) ?? []
   return rows
     .map((value): DomainBounceRisk | null => {
@@ -1141,6 +1116,138 @@ export async function fetchDomainBounceRisks(
       }
     })
     .filter((row): row is DomainBounceRisk => row !== null)
+}
+
+/**
+ * Combine per-campaign risk lists into one row per sending domain. A domain
+ * sends for many campaigns, so counts add up and inboxes are unioned.
+ */
+export function mergeDomainBounceRisks(
+  lists: DomainBounceRisk[][],
+): DomainBounceRisk[] {
+  const byDomain = new Map<
+    string,
+    {
+      risk: DomainBounceRisk
+      inboxes: Set<string>
+      categories: Map<string, DomainBounceRisk['categories'][number]>
+    }
+  >()
+
+  for (const list of lists) {
+    for (const risk of list) {
+      let entry = byDomain.get(risk.domain)
+      if (!entry) {
+        entry = {
+          risk: { ...risk, total: 0, latestAt: '', inboxes: [], categories: [], samples: [] },
+          inboxes: new Set(),
+          categories: new Map(),
+        }
+        byDomain.set(risk.domain, entry)
+      }
+      const merged = entry.risk
+      merged.total += risk.total
+      if (risk.latestAt > merged.latestAt) merged.latestAt = risk.latestAt
+      for (const inbox of risk.inboxes) entry.inboxes.add(inbox)
+      for (const category of risk.categories) {
+        const current = entry.categories.get(category.category)
+        if (current) current.count += category.count
+        else entry.categories.set(category.category, { ...category })
+      }
+      merged.samples.push(...risk.samples)
+    }
+  }
+
+  return Array.from(byDomain.values())
+    .map(({ risk, inboxes, categories }) => ({
+      ...risk,
+      inboxes: Array.from(inboxes).sort(),
+      affectedInboxes: inboxes.size,
+      categories: Array.from(categories.values()).sort((a, b) => b.count - a.count),
+      samples: risk.samples
+        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+        .slice(0, 5),
+    }))
+    .sort((a, b) => b.total - a.total || a.domain.localeCompare(b.domain))
+}
+
+async function fetchCampaignBounceRisks(
+  jwt: string,
+  startDate: string,
+  endDate: string,
+  campaignId: number,
+): Promise<DomainBounceRisk[]> {
+  const params = new URLSearchParams({
+    start: startDate,
+    end: endDate,
+    mode: 'risks',
+    campaignId: String(campaignId),
+  })
+  const res = await fetch(`${DOMAIN_HEALTH_URL}?${params}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    let message = ''
+    try {
+      message = String((JSON.parse(text) as Record<string, unknown>)?.error ?? '')
+    } catch {
+      // Fall back to the raw response below.
+    }
+    throw new Error(
+      message ||
+        `Inbox risk request failed (${res.status} ${res.statusText}) for campaign ${campaignId}. Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(`Inbox risk response was not valid JSON: ${preview(text)}`)
+  }
+  return parseDomainBounceRisks(json)
+}
+
+/**
+ * Bounce risks per sending domain for a date range. Smartlead no longer offers
+ * an account-wide bounce query, so each campaign's bounced leads are scanned
+ * separately (by a small worker pool) and merged by domain. Callers pass only
+ * campaigns that have bounces at all, which keeps the scan proportional to
+ * bounce volume rather than campaign count.
+ */
+export async function fetchDomainBounceRisks(
+  jwt: string,
+  startDate: string,
+  endDate: string,
+  campaignIds: number[],
+  concurrency = 4,
+): Promise<DomainBounceRisk[]> {
+  const lists: DomainBounceRisk[][] = []
+  const failures: string[] = []
+
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < campaignIds.length) {
+      const id = campaignIds[cursor++]
+      try {
+        lists.push(await fetchCampaignBounceRisks(jwt, startDate, endDate, id))
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, campaignIds.length) }, worker),
+  )
+
+  // A partial scan would under-report a domain's risk, so it is withheld.
+  if (failures.length > 0) {
+    throw new Error(
+      `Bounce scan failed for ${failures.length} of ${campaignIds.length} campaigns: ${failures[0]}`,
+    )
+  }
+  return mergeDomainBounceRisks(lists)
 }
 
 // Small chunks keep each serverless request short and let the caller stop
@@ -1696,10 +1803,13 @@ export async function fetchCampaignSequences(
       replied: num(o.reply_count, 0),
       positiveReplies: num(o.positive_reply_count, 0),
       bounced: num(o.bounce_count, 0),
+      // Invalid-bounce counts are per step: Smartlead's bounce list carries no
+      // A/B variant, so a variant row's share is unknown rather than zero.
       invalidBounces:
-        invalidCounts?.get(
-          `${num(mapping.id, 0)}:${num(o.seq_variant_id, 0)}`,
-        ) ?? (invalidCounts ? 0 : null),
+        num(o.seq_variant_id, 0) > 0
+          ? null
+          : (invalidCounts?.get(`${num(mapping.id, 0)}:0`) ??
+            (invalidCounts ? 0 : null)),
       senderBounced: num(o.sender_bounce_count, 0),
       opened: num(o.open_count, 0),
       clicked: num(o.click_count, 0),

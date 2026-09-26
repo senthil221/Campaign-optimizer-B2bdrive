@@ -16,6 +16,8 @@
     "api/campaign-schedule.ts",
     "api/_lib/campaign-settings.ts",
     "api/_lib/campaign-settings.test.ts",
+    "api/domain-health.ts",
+    "api/_lib/domain-health.test.ts",
     "api/email-accounts.ts",
     "api/smartlead-sync.ts",
     "api/_lib/smartlead-snapshot.ts",

@@ -1,12 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-const GQL_URL = 'https://fe-gql.smartlead.ai/v1/graphql'
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
-const PAGE_LIMIT = 100
-const MAX_PAGES = 50
 const MAX_RANGE_DAYS = 31
-const CAMPAIGN_BOUNCE_PAGE_LIMIT = 500
-const MAX_CAMPAIGN_BOUNCE_PAGES = 100
+// Bounced leads per leads/filter page. Smartlead's own UI asks for 25; a larger
+// page just means fewer round trips, and paging stops on an empty page rather
+// than a short one, so a server-side cap cannot skip leads.
+const BOUNCE_PAGE_LIMIT = 100
+const MAX_BOUNCE_PAGES_PER_CAMPAIGN = 100
+const MAX_BOUNCE_CAMPAIGNS_PER_REQUEST = 25
 const BLACKLIST_CONCURRENCY = 8
 const BLACKLIST_MAX_CAMPAIGNS = 500
 
@@ -35,64 +36,16 @@ interface DomainRiskAccumulator {
   samples: RiskSample[]
 }
 
-const BOUNCE_QUERY = `query getDomainBounceRisks($offset: Int!, $limit: Int!, $where: email_campaign_stats_bool_exp!) {
-  email_campaign_stats(
-    where: $where
-    order_by: {reply_time: desc, sent_time: desc}
-    offset: $offset
-    limit: $limit
-  ) {
-    id
-    is_bounced
-    sent_time
-    reply_time
-    email_details
-    reply_message_details
-    email_campaign_leads_mapping {
-      lead_category_id
-    }
-  }
-}`
-
-const CAMPAIGN_LIST_BOUNCE_QUERY = `query getCampaignListBounces($offset: Int!, $limit: Int!, $where: email_campaign_stats_bool_exp!) {
-  email_campaign_stats(
-    where: $where
-    order_by: {id: asc}
-    offset: $offset
-    limit: $limit
-  ) {
-    id
-    email_campaign_id
-    email_campaign_seq_id
-    seq_variant_id
-    is_bounced
-    reply_message_details
-    email_details
-    email_campaign_leads_mapping {
-      lead_category_id
-    }
-  }
-}`
-
-function userIdFromJwt(jwt: string): number | null {
-  try {
-    const segment = jwt.split('.')[1]
-    if (!segment) return null
-    const payload = JSON.parse(
-      Buffer.from(segment, 'base64').toString('utf8'),
-    ) as Record<string, unknown>
-    const claims =
-      (payload['https://hasura.io/jwt/claims'] as Record<string, unknown>) ?? {}
-    const raw =
-      claims['x-hasura-user-id'] ??
-      payload.user_id ??
-      payload.id ??
-      payload.sub
-    const value = Number(raw)
-    return Number.isFinite(value) && value > 0 ? value : null
-  } catch {
-    return null
-  }
+/** One bounced lead, reduced to what the two bounce analyses read. */
+export interface BounceRecord {
+  statsId: string
+  seqId: number
+  recipient: string
+  senderEmail: string
+  replyTime: string | null
+  sentTime: string | null
+  diagnostic: string
+  senderBounce: boolean
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -259,6 +212,129 @@ function validDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
+function preview(text: string, max = 300): string {
+  return text.length > max ? `${text.slice(0, max)}… (truncated)` : text
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** A bounced lead from leads/filter as a BounceRecord, or null if it has no id. */
+export function bounceRecordFromLead(lead: unknown): BounceRecord | null {
+  const row = objectValue(lead)
+  const leadId = String(row.id ?? '').trim()
+  if (!leadId) return null
+
+  // After a bounce the lead is blocked, so its latest sent email is the one
+  // that bounced; the bounce notice arrives as that email's "reply".
+  const sent = objectValue(row.latest_email_stats)
+  const reply = objectValue(row.latest_reply_stats)
+  const details = objectValue(sent.email_details)
+
+  return {
+    statsId: String(sent.id ?? reply.id ?? `lead:${leadId}`),
+    seqId: Number(sent.email_campaign_seq_id ?? reply.email_campaign_seq_id) || 0,
+    recipient:
+      recipientEmail(details) ||
+      String(objectValue(row.email_lead).email ?? '').trim().toLowerCase(),
+    senderEmail: String(
+      details.from ?? objectValue(row.email_account).username ?? '',
+    )
+      .trim()
+      .toLowerCase(),
+    replyTime: optionalString(sent.reply_time ?? reply.reply_time),
+    sentTime: optionalString(sent.sent_time ?? reply.sent_time),
+    diagnostic: diagnosticText(
+      sent.reply_message_details ?? reply.reply_message_details,
+    ),
+    // Lead category 9 is Smartlead's "sender originated bounce".
+    senderBounce: Number(row.lead_category_id) === 9,
+  }
+}
+
+/**
+ * Every bounced lead in one campaign, via the filter Smartlead's own UI uses
+ * for bounces, paged by its lastSeenLeadId cursor. Smartlead retired the
+ * GraphQL host that let one query scan the whole account, so callers go
+ * campaign by campaign.
+ */
+export async function scanCampaignBounces(
+  jwt: string,
+  campaignId: number,
+): Promise<{ records: BounceRecord[]; truncated: boolean }> {
+  const records: BounceRecord[] = []
+  const seen = new Set<string>()
+  let cursor: string | null = null
+
+  for (let page = 0; page < MAX_BOUNCE_PAGES_PER_CAMPAIGN; page++) {
+    const body: Record<string, unknown> = {
+      limit: BOUNCE_PAGE_LIMIT,
+      statusFilter: 'failed',
+      leadStatuses: ['BLOCKED'],
+      fieldSet: 'active_table',
+    }
+    if (cursor) body.lastSeenLeadId = cursor
+
+    const upstream = await fetch(
+      `${SMARTLEAD_BASE}/api/email-campaigns/${campaignId}/leads/filter`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+    )
+    const text = await upstream.text()
+    if (!upstream.ok) {
+      throw new Error(
+        `Smartlead bounce request failed (${upstream.status}) for campaign ${campaignId}. Response: ${preview(text)}`,
+      )
+    }
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(
+        `Smartlead bounce response for campaign ${campaignId} was not JSON. Response: ${preview(text)}`,
+      )
+    }
+    const leads = objectValue(json).leads
+    if (!Array.isArray(leads)) {
+      throw new Error(
+        `Smartlead bounce response for campaign ${campaignId} had no "leads" array.`,
+      )
+    }
+    if (leads.length === 0) return { records, truncated: false }
+
+    let added = 0
+    for (const lead of leads) {
+      const record = bounceRecordFromLead(lead)
+      const leadId = String(objectValue(lead).id ?? '')
+      if (!record || seen.has(leadId)) continue
+      seen.add(leadId)
+      records.push(record)
+      added++
+    }
+    // No new leads means the cursor was ignored; stop rather than loop.
+    if (added === 0) return { records, truncated: false }
+    cursor = String(objectValue(leads[leads.length - 1]).id ?? '')
+  }
+  return { records, truncated: true }
+}
+
+function campaignIdsFrom(value: unknown): number[] {
+  return Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  )
+}
+
 async function handleCampaignListBounces(
   req: VercelRequest,
   res: VercelResponse,
@@ -278,114 +354,45 @@ async function handleCampaignListBounces(
     })
   }
 
-  const body = objectValue(req.body)
-  const campaignIds = Array.from(
-    new Set(
-      (Array.isArray(body.campaignIds) ? body.campaignIds : [])
-        .map(Number)
-        .filter((value) => Number.isInteger(value) && value > 0),
-    ),
-  )
+  const campaignIds = campaignIdsFrom(objectValue(req.body).campaignIds)
   if (campaignIds.length === 0) {
     return res.status(400).json({
       error: 'Body must include a non-empty campaignIds array.',
     })
   }
-  if (campaignIds.length > 1000) {
+  if (campaignIds.length > MAX_BOUNCE_CAMPAIGNS_PER_REQUEST) {
     return res.status(400).json({
-      error: 'A maximum of 1,000 campaign IDs can be checked at once.',
+      error: `A maximum of ${MAX_BOUNCE_CAMPAIGNS_PER_REQUEST} campaign IDs can be checked at once.`,
     })
   }
 
-  const userId = userIdFromJwt(jwt)
-  if (!userId) {
-    return res
-      .status(401)
-      .json({ error: 'Could not derive the Smartlead user ID from the JWT.' })
-  }
-
-  const where = {
-    user_id: { _eq: userId },
-    email_campaign_id: { _in: campaignIds },
-    is_bounced: { _eq: true },
-  }
   const invalidRecipients = new Map<number, Set<string>>()
   const sequenceInvalidRecipients = new Map<string, Set<string>>()
-  campaignIds.forEach((campaignId) => {
-    invalidRecipients.set(campaignId, new Set())
-  })
   let scanned = 0
   let truncated = false
 
   try {
-    for (let page = 0; page < MAX_CAMPAIGN_BOUNCE_PAGES; page++) {
-      const upstream = await fetch(GQL_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          operationName: 'getCampaignListBounces',
-          variables: {
-            offset: page * CAMPAIGN_BOUNCE_PAGE_LIMIT,
-            limit: CAMPAIGN_BOUNCE_PAGE_LIMIT,
-            where,
-          },
-          query: CAMPAIGN_LIST_BOUNCE_QUERY,
-        }),
-      })
-      const responseText = await upstream.text()
-      if (!upstream.ok) {
-        return res.status(upstream.status).json({
-          error: `Smartlead campaign-bounce request failed (${upstream.status}).`,
-        })
+    for (const campaignId of campaignIds) {
+      const campaignRecipients = new Set<string>()
+      invalidRecipients.set(campaignId, campaignRecipients)
+      const scan = await scanCampaignBounces(jwt, campaignId)
+      scanned += scan.records.length
+      truncated ||= scan.truncated
+
+      for (const record of scan.records) {
+        if (!isListIssueBounce(record.diagnostic, record.senderBounce)) continue
+        // Count affected addresses, not retry events. Without an address,
+        // fall back to the bounced email's own id.
+        const identity = record.recipient || `event:${record.statsId}`
+        campaignRecipients.add(identity)
+        // leads/filter carries the step but not the A/B variant, so counts
+        // are per step (variant 0).
+        const sequenceKey = `${campaignId}:${record.seqId}:0`
+        const sequenceRecipients =
+          sequenceInvalidRecipients.get(sequenceKey) ?? new Set<string>()
+        sequenceRecipients.add(identity)
+        sequenceInvalidRecipients.set(sequenceKey, sequenceRecipients)
       }
-
-      const payload = JSON.parse(responseText) as {
-        data?: { email_campaign_stats?: unknown[] }
-        errors?: Array<{ message?: string }>
-      }
-      if (payload.errors?.length) {
-        return res.status(502).json({
-          error:
-            payload.errors.map((error) => error.message).filter(Boolean).join('; ') ||
-            'Smartlead GraphQL returned an error.',
-        })
-      }
-
-      const rows = payload.data?.email_campaign_stats ?? []
-      if (rows.length === 0) break
-      scanned += rows.length
-
-      for (const value of rows) {
-        const row = objectValue(value)
-        const campaignId = Number(row.email_campaign_id)
-        const campaignRecipients = invalidRecipients.get(campaignId)
-        if (!campaignRecipients) continue
-
-        const diagnostic = diagnosticText(row.reply_message_details)
-        const senderBounce = isSenderBounce(row.email_campaign_leads_mapping)
-        if (!isListIssueBounce(diagnostic, senderBounce)) continue
-
-        // Count affected email addresses, not retry events. If Smartlead omits
-        // the address, retain the event using its stable stats-row ID.
-        const recipient = recipientEmail(row.email_details)
-        const identity = recipient || `event:${String(row.id ?? '')}`
-        if (identity !== 'event:') {
-          campaignRecipients.add(identity)
-          const sequenceId = Number(row.email_campaign_seq_id) || 0
-          const variantId = Number(row.seq_variant_id) || 0
-          const sequenceKey = `${campaignId}:${sequenceId}:${variantId}`
-          const sequenceRecipients =
-            sequenceInvalidRecipients.get(sequenceKey) ?? new Set<string>()
-          sequenceRecipients.add(identity)
-          sequenceInvalidRecipients.set(sequenceKey, sequenceRecipients)
-        }
-      }
-
-      if (rows.length < CAMPAIGN_BOUNCE_PAGE_LIMIT) break
-      if (page === MAX_CAMPAIGN_BOUNCE_PAGES - 1) truncated = true
     }
 
     const counts = campaignIds.map((campaignId) => ({
@@ -648,155 +655,74 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
   }
 
-  const userId = userIdFromJwt(jwt)
-  if (!userId) {
-    return res
-      .status(401)
-      .json({ error: 'Could not derive the Smartlead user ID from the JWT.' })
+  const rawCampaignId = Array.isArray(req.query.campaignId)
+    ? req.query.campaignId[0]
+    : req.query.campaignId
+  const campaignId = Number(rawCampaignId)
+  if (!Number.isInteger(campaignId) || campaignId <= 0) {
+    return res.status(400).json({
+      error:
+        'Inbox risks are scanned one campaign at a time: provide ?campaignId=<id>.',
+    })
   }
 
-  const where = {
-    user_id: { _eq: userId },
-    _and: [
-      {
-        _or: [
-          { is_bounced: { _eq: true } },
-          {
-            email_campaign_leads_mapping: {
-              lead_category_id: { _eq: 9 },
-            },
-          },
-        ],
-      },
-      {
-        _or: [
-          {
-            reply_time: {
-              _gte: startAt.toISOString(),
-              _lt: endAt.toISOString(),
-            },
-          },
-          {
-            _and: [
-              { reply_time: { _is_null: true } },
-              {
-                sent_time: {
-                  _gte: startAt.toISOString(),
-                  _lt: endAt.toISOString(),
-                },
-              },
-            ],
-          },
-        ],
-      },
-    ],
+  // As before: a bounce falls in the range by its bounce-notice time, or by
+  // its send time when no notice time was recorded.
+  const startMs = startAt.getTime()
+  const endMs = endAt.getTime()
+  const occurredAtOf = (record: BounceRecord) =>
+    record.replyTime ?? record.sentTime ?? ''
+  const inRange = (record: BounceRecord) => {
+    const ms = Date.parse(occurredAtOf(record))
+    return Number.isFinite(ms) && ms >= startMs && ms < endMs
   }
 
   const domainMap = new Map<string, DomainRiskAccumulator>()
-  let scanned = 0
-  let truncated = false
 
   try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const upstream = await fetch(GQL_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          operationName: 'getDomainBounceRisks',
-          variables: {
-            offset: page * PAGE_LIMIT,
-            limit: PAGE_LIMIT,
-            where,
-          },
-          query: BOUNCE_QUERY,
-        }),
-      })
-      const text = await upstream.text()
-      if (!upstream.ok) {
-        return res.status(upstream.status).json({
-          error: `Smartlead bounce request failed (${upstream.status}).`,
+    const scan = await scanCampaignBounces(jwt, campaignId)
+
+    for (const record of scan.records) {
+      if (!inRange(record)) continue
+      const risk = classifyRisk(record.diagnostic)
+      if (!risk) continue
+
+      const senderEmail = record.senderEmail
+      const at = senderEmail.lastIndexOf('@')
+      const domain = at >= 0 ? senderEmail.slice(at + 1) : ''
+      if (!domain) continue
+
+      const occurredAt = occurredAtOf(record)
+      const current = domainMap.get(domain) ?? {
+        domain,
+        total: 0,
+        latestAt: '',
+        inboxes: new Set<string>(),
+        categories: new Map<RiskCategory, { label: string; count: number }>(),
+        samples: [],
+      }
+
+      current.total += 1
+      current.inboxes.add(senderEmail)
+      if (!current.latestAt || occurredAt > current.latestAt) {
+        current.latestAt = occurredAt
+      }
+      const category = current.categories.get(risk.category)
+      if (category) category.count += 1
+      else {
+        current.categories.set(risk.category, { label: risk.label, count: 1 })
+      }
+      if (current.samples.length < 5) {
+        current.samples.push({
+          senderEmail,
+          category: risk.category,
+          label: risk.label,
+          occurredAt,
+          diagnostic: record.diagnostic.slice(0, 320),
+          senderBounce: record.senderBounce,
         })
       }
-
-      const payload = JSON.parse(text) as {
-        data?: { email_campaign_stats?: unknown[] }
-        errors?: Array<{ message?: string }>
-      }
-      if (payload.errors?.length) {
-        return res.status(502).json({
-          error:
-            payload.errors.map((error) => error.message).filter(Boolean).join('; ') ||
-            'Smartlead GraphQL returned an error.',
-        })
-      }
-
-      const rows = payload.data?.email_campaign_stats ?? []
-      if (rows.length === 0) break
-      scanned += rows.length
-
-      for (const value of rows) {
-        const row = objectValue(value)
-        const textValue = diagnosticText(row.reply_message_details)
-        const risk = classifyRisk(textValue)
-        if (!risk) continue
-
-        const emailDetails = objectValue(row.email_details)
-        const senderEmail = String(
-          emailDetails.from ?? emailDetails.sender ?? '',
-        )
-          .trim()
-          .toLowerCase()
-        const at = senderEmail.lastIndexOf('@')
-        const domain = at >= 0 ? senderEmail.slice(at + 1) : ''
-        if (!domain) continue
-
-        const occurredAt = String(row.reply_time ?? row.sent_time ?? '')
-        const senderBounce = isSenderBounce(
-          row.email_campaign_leads_mapping,
-        )
-        const current = domainMap.get(domain) ?? {
-          domain,
-          total: 0,
-          latestAt: '',
-          inboxes: new Set<string>(),
-          categories: new Map<
-            RiskCategory,
-            { label: string; count: number }
-          >(),
-          samples: [],
-        }
-
-        current.total += 1
-        current.inboxes.add(senderEmail)
-        if (!current.latestAt || occurredAt > current.latestAt) {
-          current.latestAt = occurredAt
-        }
-        const category = current.categories.get(risk.category)
-        if (category) category.count += 1
-        else {
-          current.categories.set(risk.category, {
-            label: risk.label,
-            count: 1,
-          })
-        }
-        if (current.samples.length < 5) {
-          current.samples.push({
-            senderEmail,
-            category: risk.category,
-            label: risk.label,
-            occurredAt,
-            diagnostic: textValue.slice(0, 320),
-            senderBounce,
-          })
-        }
-        domainMap.set(domain, current)
-      }
-
-      if (rows.length < PAGE_LIMIT) break
-      if (page === MAX_PAGES - 1) truncated = true
+      domainMap.set(domain, current)
     }
 
     const risks = Array.from(domainMap.values())
@@ -814,10 +740,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .sort((a, b) => b.total - a.total || a.domain.localeCompare(b.domain))
 
     res.setHeader('cache-control', 'private, max-age=0, no-store')
-    return res.status(200).json({ risks, scanned, truncated })
+    return res.status(200).json({
+      risks,
+      scanned: scan.records.length,
+      truncated: scan.truncated,
+    })
   } catch (error) {
     return res.status(502).json({
-      error: `Bounce-risk proxy failed: ${
+      error: `Bounce-risk scan failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
     })
