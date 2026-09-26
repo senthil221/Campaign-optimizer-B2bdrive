@@ -11,6 +11,7 @@
   "include": [
     "api/account-snapshot.ts",
     "api/campaign-actions.ts",
+    "api/campaign-inbox.ts",
     "api/email-accounts.ts",
     "api/smartlead-sync.ts",
     "api/_lib/smartlead-snapshot.ts",
