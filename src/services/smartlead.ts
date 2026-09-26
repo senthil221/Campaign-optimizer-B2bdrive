@@ -1281,8 +1281,8 @@ export async function fetchCampaignList(
   const byId = new Map<number, CampaignListEntry>()
   let rawSample: unknown = null
 
+  let offset = 0
   for (let page = 0; page < MAX_PAGES; page++) {
-    const offset = page * PAGE_LIMIT
     const res = await fetch(`${CAMPAIGN_LIST_URL}?offset=${offset}`, {
       method: 'GET',
       headers: authHeaders(jwt, apiKey),
@@ -1327,8 +1327,12 @@ export async function fetchCampaignList(
       added++
     }
 
-    // Stop on a short page, or if the endpoint ignored offset (no new rows).
-    if (rows.length < PAGE_LIMIT || added === 0) break
+    // Step by what actually arrived, not by the limit requested: Smartlead's own
+    // UI pages by 25, and if the server caps below our limit, a fixed stride
+    // would silently skip campaigns. An empty page (above) ends the loop; no
+    // new ids means the endpoint ignored offset.
+    offset += rows.length
+    if (added === 0) break
     await delay(REQUEST_DELAY_MS)
   }
 

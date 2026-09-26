@@ -21,7 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const headers: Record<string, string> = {}
 
   if (jwt) {
-    url = `${SMARTLEAD_BASE}/api/email-campaigns/get-all-campaigns?offset=${offset}&limit=${limit}&statusNot=ARCHIVED&parentCampaignId=null`
+    url = `${SMARTLEAD_BASE}/api/email-campaigns/get-all-campaigns?offset=${offset}&limit=${limit}&statusNot=DELETED&parentCampaignId=null`
     headers.Authorization = `Bearer ${jwt}`
   } else if (apiKey) {
     url = `${SMARTLEAD_BASE}/api/v1/campaigns?api_key=${encodeURIComponent(apiKey)}`
