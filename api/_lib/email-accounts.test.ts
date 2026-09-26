@@ -188,3 +188,75 @@ describe('warmup settings update', () => {
     expect(calls).toHaveLength(0)
   })
 })
+
+describe('tags on the v2 REST API', () => {
+  const TAGS_URL = 'https://sl-fe-v2.smartlead.ai/api/v1/tags'
+  let restCalls: Array<{ url: string; method: string; auth: string }>
+
+  function stubTags(status: number, body: string) {
+    restCalls = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      restCalls.push({
+        url,
+        method: String(init.method),
+        auth: (init.headers as Record<string, string>).Authorization,
+      })
+      return { ok: status >= 200 && status < 300, status, text: async () => body }
+    })
+  }
+
+  it('lists every tag from the v2 endpoint, with no page limit', async () => {
+    stubTags(
+      200,
+      JSON.stringify({
+        success: true,
+        data: [
+          { id: 520819, name: 'MVinix - Client', color: '#40826d', created_at: '2026-09-21T09:26:32.413Z' },
+          { id: 517212, name: 'Q-Outlook 2', color: '#FCE1B1', created_at: '2026-09-14T10:52:48.691Z' },
+          { id: 517212, name: 'Q-Outlook 2', color: '#FCE1B1', created_at: '2026-09-14T10:52:48.691Z' },
+        ],
+      }),
+    )
+    const { res, captured } = fakeRes()
+    await handler(
+      { method: 'GET', body: {}, headers: {}, query: { mode: 'tags' } } as unknown as VercelRequest,
+      res,
+    )
+
+    expect(restCalls).toEqual([{ url: TAGS_URL, method: 'GET', auth: 'Bearer test-jwt' }])
+    expect(captured.status).toBe(200)
+    expect(captured.body.tags).toEqual([
+      { id: 520819, name: 'MVinix - Client', color: '#40826d', createdAt: '2026-09-21T09:26:32.413Z' },
+      { id: 517212, name: 'Q-Outlook 2', color: '#FCE1B1', createdAt: '2026-09-14T10:52:48.691Z' },
+    ])
+  })
+
+  it('deletes a tag with DELETE /api/v1/tags/{id}', async () => {
+    stubTags(200, JSON.stringify({ success: true }))
+    const { res, captured } = fakeRes()
+    await handler(fakeReq({ mode: 'delete-tag', id: 416443 }), res)
+
+    expect(restCalls).toEqual([
+      { url: `${TAGS_URL}/416443`, method: 'DELETE', auth: 'Bearer test-jwt' },
+    ])
+    expect(captured.status).toBe(200)
+    expect(captured.body).toEqual({ success: true, id: 416443 })
+  })
+
+  it("reports a tag that's already gone as 404", async () => {
+    stubTags(404, JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'Tag not found' } }))
+    const { res, captured } = fakeRes()
+    await handler(fakeReq({ mode: 'delete-tag', id: 1 }), res)
+
+    expect(captured.status).toBe(404)
+  })
+
+  it("passes Smartlead's own error message through when a delete fails", async () => {
+    stubTags(401, JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid token' } }))
+    const { res, captured } = fakeRes()
+    await handler(fakeReq({ mode: 'delete-tag', id: 1 }), res)
+
+    expect(captured.status).toBe(502)
+    expect(captured.body.error).toBe('Invalid token')
+  })
+})

@@ -19,8 +19,6 @@ const BULK_CONFIG_URL = `${SMARTLEAD_BASE}/api/email-account/bulk-update-email-a
 // Ids per upstream call, and how many of those calls run at once.
 const BULK_CONFIG_CHUNK = 250
 const BULK_CONFIG_CONCURRENCY = 4
-const TAG_PAGE_LIMIT = 100
-const MAX_TAG_PAGES = 200
 const TAG_COLORS = [
   '#B1FCFA',
   '#FCE1B1',
@@ -32,14 +30,10 @@ const TAG_COLORS = [
   '#FCC4B1',
 ]
 
-const TAGS_QUERY = `query getPaginatedTags($offset: Int!, $limit: Int!, $where: tags_bool_exp!) {
-  tags(where: $where, offset: $offset, limit: $limit, order_by: {id: desc}) {
-    created_at
-    id
-    name
-    color
-  }
-}`
+// Smartlead retired its GraphQL host; its new UI reads and deletes tags on the
+// v2 REST host with the same JWT. Creating a tag has not been captured yet, so
+// that one call still uses CREATE_TAG_MUTATION below.
+const TAGS_URL = 'https://sl-fe-v2.smartlead.ai/api/v1/tags'
 
 const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
   insert_tags_one(object: $object) {
@@ -47,15 +41,6 @@ const CREATE_TAG_MUTATION = `mutation createTag($object: tags_insert_input!) {
     id
     name
     color
-  }
-}`
-
-// Deleting a tag also drops its mailbox mappings; Smartlead cascades those
-// server-side, so the returned row is only used to confirm the id existed.
-const DELETE_TAG_MUTATION = `mutation deleteTag($id: Int!) {
-  delete_tags_by_pk(id: $id) {
-    id
-    name
   }
 }`
 
@@ -127,66 +112,53 @@ async function tagGraphqlRequest(
   return objectValue(payload.data)
 }
 
-/** Every tag in the workspace, paged. Throws past the page ceiling. */
+/** One call to the v2 tags API. Never throws on an HTTP failure. */
+async function tagRestRequest(jwt: string, url: string, method: 'GET' | 'DELETE') {
+  const upstream = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${jwt}` },
+  })
+  const text = await upstream.text()
+  let payload: Record<string, unknown> = {}
+  try {
+    payload = objectValue(JSON.parse(text))
+  } catch {
+    // A delete may answer with an empty body; failures are judged by status.
+  }
+  return {
+    ok: upstream.ok && payload.success !== false,
+    status: upstream.status,
+    payload,
+    message:
+      String(objectValue(payload.error).message ?? '') ||
+      `Smartlead tag request failed (${upstream.status}).`,
+  }
+}
+
+/** Every tag in the workspace. */
 async function fetchAllTags(jwt: string) {
+  // Smartlead's UI asks for ?limit=20 per page; with no limit the API returns
+  // the whole list, which the name → id lookup for bulk tagging depends on.
+  const { ok, payload, message } = await tagRestRequest(jwt, TAGS_URL, 'GET')
+  if (!ok) throw new Error(message)
+  if (!Array.isArray(payload.data)) {
+    throw new Error('Smartlead tag response had no "data" array.')
+  }
   const tags: ReturnType<typeof normalizeTag>[] = []
   const seenIds = new Set<number>()
-
-  for (let page = 0; page < MAX_TAG_PAGES; page++) {
-    const data = await tagGraphqlRequest(jwt, {
-      operationName: 'getPaginatedTags',
-      variables: {
-        offset: page * TAG_PAGE_LIMIT,
-        limit: TAG_PAGE_LIMIT,
-        where: {},
-      },
-      query: TAGS_QUERY,
-    })
-    const rows = Array.isArray(data.tags) ? data.tags : []
-    for (const row of rows) {
-      const tag = normalizeTag(objectValue(row) as UpstreamTag)
-      if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
-      seenIds.add(tag.id)
-      tags.push(tag)
-    }
-    if (rows.length < TAG_PAGE_LIMIT) return tags
+  for (const row of payload.data) {
+    const tag = normalizeTag(objectValue(row) as UpstreamTag)
+    if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
+    seenIds.add(tag.id)
+    tags.push(tag)
   }
-
-  throw new Error(
-    `Tag loading stopped after ${MAX_TAG_PAGES * TAG_PAGE_LIMIT} rows.`,
-  )
+  return tags
 }
 
 async function listTags(res: VercelResponse, jwt: string) {
-  const tags: ReturnType<typeof normalizeTag>[] = []
-  const seenIds = new Set<number>()
-
-  for (let page = 0; page < MAX_TAG_PAGES; page++) {
-    const data = await tagGraphqlRequest(jwt, {
-      operationName: 'getPaginatedTags',
-      variables: {
-        offset: page * TAG_PAGE_LIMIT,
-        limit: TAG_PAGE_LIMIT,
-        where: {},
-      },
-      query: TAGS_QUERY,
-    })
-    const rows = Array.isArray(data.tags) ? data.tags : []
-    for (const row of rows) {
-      const tag = normalizeTag(objectValue(row) as UpstreamTag)
-      if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
-      seenIds.add(tag.id)
-      tags.push(tag)
-    }
-    if (rows.length < TAG_PAGE_LIMIT) {
-      res.setHeader('cache-control', 'private, max-age=0, no-store')
-      return res.status(200).json({ tags })
-    }
-  }
-
-  return res.status(502).json({
-    error: `Tag loading stopped after ${MAX_TAG_PAGES * TAG_PAGE_LIMIT} rows.`,
-  })
+  const tags = await fetchAllTags(jwt)
+  res.setHeader('cache-control', 'private, max-age=0, no-store')
+  return res.status(200).json({ tags })
 }
 
 async function createTag(
@@ -225,25 +197,21 @@ async function deleteTag(
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: 'Provide a numeric tag id to delete.' })
   }
-  const data = await tagGraphqlRequest(jwt, {
-    operationName: 'deleteTag',
-    variables: { id },
-    query: DELETE_TAG_MUTATION,
-  })
-  const deleted = objectValue(data.delete_tags_by_pk)
-  if (!Number(deleted.id)) {
+  const { ok, status, message } = await tagRestRequest(
+    jwt,
+    `${TAGS_URL}/${id}`,
+    'DELETE',
+  )
+  if (status === 404) {
     return res.status(404).json({
       error: 'That tag no longer exists in Smartlead.',
     })
   }
+  if (!ok) return res.status(502).json({ error: message })
   // Mailboxes carry tag mappings, so cached inbox rows are now out of date.
   await markSnapshotStale()
   res.setHeader('cache-control', 'private, max-age=0, no-store')
-  return res.status(200).json({
-    success: true,
-    id,
-    name: String(deleted.name ?? ''),
-  })
+  return res.status(200).json({ success: true, id })
 }
 
 /**
