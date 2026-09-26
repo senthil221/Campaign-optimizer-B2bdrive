@@ -682,8 +682,8 @@ export function normalizeCampaign(
     totalCount: num(raw?.total_count, 0),
     draftedCount: num(raw?.drafted_count, 0),
     status: String(nameInfo?.status ?? raw?.status ?? ''),
-    maxLeadsPerDay: null, // filled in by fetchCampaignSchedules()
-    generalSettings: null, // filled in by fetchCampaignGeneralSettings()
+    maxLeadsPerDay: null, // filled in by fetchCampaignSettingsFor()
+    generalSettings: null, // filled in by fetchCampaignSettingsFor()
     leadStats: {
       total: num(stats?.total, 0),
       completed: num(stats?.completed, 0),
@@ -1475,50 +1475,14 @@ export async function fetchCampaignOverviews(
 }
 
 // ---------------------------------------------------------------------------
-// Schedule cap (max new leads / day) — Smartlead GraphQL via the proxy
+// Campaign settings: schedule cap (max new leads / day) + general settings
 // ---------------------------------------------------------------------------
 
-/** id -> max_leads_per_day for the given campaign ids (one batched read). */
-export async function fetchCampaignSchedules(
-  jwt: string,
-  ids: number[],
-): Promise<Map<number, number>> {
-  const out = new Map<number, number>()
-  if (ids.length === 0) return out
-
-  for (const batch of chunk(ids, 200)) {
-    const res = await fetch(`${CAMPAIGN_SCHEDULE_URL}?ids=${batch.join(',')}`, {
-      method: 'GET',
-      headers: authHeaders(jwt),
-    })
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(
-        `Schedule request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-      )
-    }
-    let json: unknown
-    try {
-      json = JSON.parse(text)
-    } catch {
-      throw new Error(`Schedule response was not JSON. Response: ${preview(text)}`)
-    }
-    const obj = json as Record<string, unknown>
-    if (Array.isArray(obj?.errors) && obj.errors.length) {
-      throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
-    }
-    const rows = extractArray(json, ['email_campaigns'])
-    if (!rows) continue
-    for (const r of rows) {
-      const o = (r ?? {}) as Record<string, unknown>
-      const id = num(o.id, 0)
-      if (id) out.set(id, num(o.max_leads_per_day, 0))
-    }
-  }
-  return out
-}
-
-/** Update only max_leads_per_day for one campaign (Hasura partial _set). */
+/**
+ * Update only max_leads_per_day for one campaign. The proxy re-reads the
+ * campaign afterwards and fails loudly if the value did not land or any other
+ * setting changed.
+ */
 export async function updateMaxLeadsPerDay(
   jwt: string,
   id: number,
@@ -1531,19 +1495,15 @@ export async function updateMaxLeadsPerDay(
   })
   const text = await res.text()
   if (!res.ok) {
+    let message = ''
+    try {
+      message = String((JSON.parse(text) as Record<string, unknown>)?.error ?? '')
+    } catch {
+      // Fall back to the raw response below.
+    }
     throw new Error(
-      `Update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+      message || `Update failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
     )
-  }
-  let json: unknown
-  try {
-    json = JSON.parse(text)
-  } catch {
-    throw new Error(`Update response was not JSON. Response: ${preview(text)}`)
-  }
-  const obj = json as Record<string, unknown>
-  if (Array.isArray(obj?.errors) && obj.errors.length) {
-    throw new Error(`Smartlead rejected the update: ${preview(obj.errors)}`)
   }
 }
 
@@ -1576,44 +1536,76 @@ function normalizeGeneralSettings(raw: Record<string, unknown>): CampaignGeneral
   }
 }
 
-/** id -> plain-text/tracking settings for the given campaign ids (one batched read). */
-export async function fetchCampaignGeneralSettings(
+export interface CampaignSettingsRead {
+  /** null when Smartlead's settings omit the cap. */
+  maxLeadsPerDay: number | null
+  general: CampaignGeneralSettings
+}
+
+async function fetchOneCampaignSettings(
+  jwt: string,
+  id: number,
+): Promise<CampaignSettingsRead> {
+  const res = await fetch(`${CAMPAIGN_GENERAL_SETTINGS_URL}?id=${id}`, {
+    method: 'GET',
+    headers: authHeaders(jwt),
+  })
+  const text = await res.text()
+  let json: Record<string, unknown> = {}
+  try {
+    json = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    // Reported below.
+  }
+  if (!res.ok) {
+    throw new Error(
+      String(json.error ?? '') ||
+        `Settings request failed (${res.status} ${res.statusText}) for campaign ${id}. Response: ${preview(text)}`,
+    )
+  }
+  // The settings GET returns this as a number; Smartlead's own save sends a
+  // string, so accept either.
+  const rawMax = json.max_leads_per_day
+  const maxLeadsPerDay =
+    rawMax === null || rawMax === undefined || rawMax === '' || !Number.isFinite(Number(rawMax))
+      ? null
+      : Number(rawMax)
+  return { maxLeadsPerDay, general: normalizeGeneralSettings(json) }
+}
+
+/**
+ * Max leads/day and plain-text/tracking settings for many campaigns. The
+ * settings endpoint is per campaign, so this runs a small worker pool like the
+ * overview fetch. Unlike that fetch, failures are returned rather than
+ * swallowed, so a dead token or endpoint reads as an error, not blank columns.
+ */
+export async function fetchCampaignSettingsFor(
   jwt: string,
   ids: number[],
-): Promise<Map<number, CampaignGeneralSettings>> {
-  const out = new Map<number, CampaignGeneralSettings>()
-  if (ids.length === 0) return out
+  concurrency = 4,
+): Promise<{
+  settings: Map<number, CampaignSettingsRead>
+  failures: Array<{ id: number; error: string }>
+}> {
+  const settings = new Map<number, CampaignSettingsRead>()
+  const failures: Array<{ id: number; error: string }> = []
 
-  for (const batch of chunk(ids, 200)) {
-    const res = await fetch(`${CAMPAIGN_GENERAL_SETTINGS_URL}?ids=${batch.join(',')}`, {
-      method: 'GET',
-      headers: authHeaders(jwt),
-    })
-    const text = await res.text()
-    if (!res.ok) {
-      throw new Error(
-        `General settings request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
-      )
-    }
-    let json: unknown
-    try {
-      json = JSON.parse(text)
-    } catch {
-      throw new Error(`General settings response was not JSON. Response: ${preview(text)}`)
-    }
-    const obj = json as Record<string, unknown>
-    if (Array.isArray(obj?.errors) && obj.errors.length) {
-      throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
-    }
-    const rows = extractArray(json, ['email_campaigns'])
-    if (!rows) continue
-    for (const r of rows) {
-      const o = (r ?? {}) as Record<string, unknown>
-      const id = num(o.id, 0)
-      if (id) out.set(id, normalizeGeneralSettings(o))
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < ids.length) {
+      const id = ids[cursor++]
+      try {
+        settings.set(id, await fetchOneCampaignSettings(jwt, id))
+      } catch (e) {
+        failures.push({ id, error: e instanceof Error ? e.message : String(e) })
+      }
     }
   }
-  return out
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, ids.length) }, worker),
+  )
+  return { settings, failures }
 }
 
 // ---------------------------------------------------------------------------
@@ -2038,24 +2030,24 @@ export async function loadCampaigns(
     )
   }
 
-  // 4-6) Three independent, best-effort enrichment reads. They each touch only
-  //      `ids` and write a different campaign field (maxLeadsPerDay / overview /
-  //      generalSettings), so they run concurrently — the slow per-campaign
-  //      overview fetch now hides the two batched reads instead of blocking on
-  //      them. Each collects its own warnings so ordering below stays stable.
-  const scheduleStep = async (): Promise<string[]> => {
-    try {
-      const scheduleMap = await fetchCampaignSchedules(jwt, ids)
-      for (const c of campaigns) {
-        const v = scheduleMap.get(c.campaignId)
-        if (v !== undefined) c.maxLeadsPerDay = v
-      }
-      return []
-    } catch (e) {
-      return [
-        `Could not load max-leads/day from the schedule: ${e instanceof Error ? e.message : String(e)}`,
-      ]
+  // 4-5) Two independent, best-effort enrichment reads, run concurrently. Both
+  //      fan out per campaign; each collects its own warnings so their order
+  //      below stays stable. Max leads/day and plain text / open & click
+  //      tracking come from one settings read.
+  const settingsStep = async (): Promise<string[]> => {
+    const { settings, failures } = await fetchCampaignSettingsFor(jwt, ids)
+    for (const c of campaigns) {
+      const s = settings.get(c.campaignId)
+      if (!s) continue
+      c.maxLeadsPerDay = s.maxLeadsPerDay
+      c.generalSettings = s.general
     }
+    if (failures.length === 0) return []
+    const scope =
+      failures.length === ids.length
+        ? 'Could not load campaign settings'
+        : `Settings for ${failures.length} of ${ids.length} campaigns could not load`
+    return [`${scope} (max leads/day, plain text, tracking): ${failures[0].error}`]
   }
 
   // Deletion-proof progress counters. Without this, progress falls back to
@@ -2080,28 +2072,11 @@ export async function loadCampaigns(
     }
   }
 
-  // Plain text / open & click tracking flags.
-  const settingsStep = async (): Promise<string[]> => {
-    try {
-      const settingsMap = await fetchCampaignGeneralSettings(jwt, ids)
-      for (const c of campaigns) {
-        const s = settingsMap.get(c.campaignId)
-        if (s) c.generalSettings = s
-      }
-      return []
-    } catch (e) {
-      return [
-        `Could not load campaign general settings: ${e instanceof Error ? e.message : String(e)}`,
-      ]
-    }
-  }
-
-  const [scheduleWarns, overviewWarns, settingsWarns] = await Promise.all([
-    scheduleStep(),
-    overviewStep(),
+  const [settingsWarns, overviewWarns] = await Promise.all([
     settingsStep(),
+    overviewStep(),
   ])
-  warnings.push(...scheduleWarns, ...overviewWarns, ...settingsWarns)
+  warnings.push(...settingsWarns, ...overviewWarns)
 
   return { campaigns, warnings, taggedCount, rawSample }
 }

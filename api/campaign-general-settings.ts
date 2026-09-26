@@ -1,38 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { UpstreamError, fetchCampaignSettings } from './_lib/campaign-settings.js'
 
-// Smartlead's internal Hasura GraphQL endpoint (same JWT as the other proxies).
-const GQL_URL = 'https://fe-gql.smartlead.ai/v1/graphql'
-
-// Mirrors the getCampaignGeneralSettings query captured from Smartlead's own
-// UI, trimmed to just the fields the dashboard surfaces (plain text send,
-// forced plain text, and open/click tracking — the last two live inside
-// track_settings, an array of Smartlead's internal disable-flags).
-const READ_QUERY = `query getCampaignGeneralSettings($ids: [Int!]!) {
-  email_campaigns(where: {id: {_in: $ids}}) {
-    id
-    send_as_plain_text
-    force_plain_text
-    track_settings
-  }
-}`
-
-async function callGraphql(
-  jwt: string,
-  query: string,
-  variables: Record<string, unknown>,
-): Promise<Response> {
-  return fetch(GQL_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ query, variables }),
-  })
-}
-
-// GET /api/campaign-general-settings?ids=1,2,3
-//   → { data: { email_campaigns: [{ id, send_as_plain_text, force_plain_text, track_settings }] } }
+// GET /api/campaign-general-settings?id=123
+//   → { id, max_leads_per_day, send_as_plain_text, force_plain_text, track_settings }
+// Smartlead's settings endpoint is per campaign, so the dashboard fans out one
+// request per campaign. One read feeds both max leads/day and the plain-text /
+// tracking flags, which the retired GraphQL host served as two batched queries.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const jwt =
     process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
@@ -46,23 +19,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed. Use GET.' })
   }
 
+  const id = Number(req.query.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Provide a numeric ?id=<campaignId>.' })
+  }
+
   try {
-    const idsRaw = String(req.query.ids ?? '')
-    const ids = idsRaw
-      .split(',')
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0)
-    if (ids.length === 0) {
-      return res.status(400).json({ error: 'Provide ?ids=1,2,3' })
-    }
-    const upstream = await callGraphql(jwt, READ_QUERY, { ids })
-    const text = await upstream.text()
-    res.status(upstream.status)
-    res.setHeader('content-type', 'application/json; charset=utf-8')
-    return res.send(text)
+    const settings = await fetchCampaignSettings(jwt, id)
+    res.setHeader('cache-control', 'private, max-age=0, no-store')
+    return res.status(200).json({
+      id,
+      max_leads_per_day: settings.max_leads_per_day ?? null,
+      send_as_plain_text: settings.send_as_plain_text ?? null,
+      force_plain_text: settings.force_plain_text ?? null,
+      track_settings: settings.track_settings ?? null,
+    })
   } catch (e) {
-    return res.status(502).json({
-      error: `Proxy failed: ${e instanceof Error ? e.message : String(e)}`,
+    const status = e instanceof UpstreamError ? e.status : 502
+    return res.status(status).json({
+      error: e instanceof Error ? e.message : String(e),
     })
   }
 }
