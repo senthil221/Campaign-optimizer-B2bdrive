@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe('campaign list proxy', () => {
   it("requests exactly what Smartlead's own UI requests", async () => {
-    process.env.SMARTLEAD_JWT = 'test-jwt'
+    process.env.SMARTLEAD_JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl'
     const urls: string[] = []
     vi.stubGlobal('fetch', async (url: string) => {
       urls.push(url)

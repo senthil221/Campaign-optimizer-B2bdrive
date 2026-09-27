@@ -55,7 +55,7 @@ function warmupBody(status: string) {
 let calls: Array<{ url: string; body: Record<string, unknown> }>
 
 beforeEach(() => {
-  process.env.SMARTLEAD_JWT = 'test-jwt'
+  process.env.SMARTLEAD_JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl'
   // No DATABASE_URL, so the snapshot helpers stay inert.
   delete process.env.DATABASE_URL
   delete process.env.POSTGRES_URL
@@ -223,7 +223,7 @@ describe('tags on the v2 REST API', () => {
       res,
     )
 
-    expect(restCalls).toEqual([{ url: TAGS_URL, method: 'GET', auth: 'Bearer test-jwt' }])
+    expect(restCalls).toEqual([{ url: TAGS_URL, method: 'GET', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' }])
     expect(captured.status).toBe(200)
     expect(captured.body.tags).toEqual([
       { id: 520819, name: 'MVinix - Client', color: '#40826d', createdAt: '2026-09-21T09:26:32.413Z' },
@@ -237,7 +237,7 @@ describe('tags on the v2 REST API', () => {
     await handler(fakeReq({ mode: 'delete-tag', id: 416443 }), res)
 
     expect(restCalls).toEqual([
-      { url: `${TAGS_URL}/416443`, method: 'DELETE', auth: 'Bearer test-jwt' },
+      { url: `${TAGS_URL}/416443`, method: 'DELETE', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' },
     ])
     expect(captured.status).toBe(200)
     expect(captured.body).toEqual({ success: true, id: 416443 })

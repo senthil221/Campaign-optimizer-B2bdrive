@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
+
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
 // GET /api/campaign-overview?id=123
@@ -8,8 +10,7 @@ const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 // and a progress breakdown that survive lead deletion — so progress stays
 // accurate even after completed leads are removed from a campaign.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

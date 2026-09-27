@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { jwtProblem, smartleadJwt } from './_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
@@ -7,8 +8,7 @@ const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 // Prefers the JWT internal endpoint (which includes campaign tags); falls back
 // to the api-key public endpoint (no tags) only when no JWT is available.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   const apiKey =
     process.env.SMARTLEAD_API_KEY ||
     (req.headers['x-smartlead-api-key'] as string) ||
@@ -23,6 +23,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const headers: Record<string, string> = {}
 
   if (jwt) {
+    const problem = jwtProblem(jwt)
+    if (problem) return res.status(400).json({ error: problem })
     url = `${SMARTLEAD_BASE}/api/email-campaigns/get-all-campaigns?offset=${offset}&limit=${limit}&statusNot=DELETED&parentCampaignId=null`
     headers.Authorization = `Bearer ${jwt}`
   } else if (apiKey) {

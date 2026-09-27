@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
@@ -67,8 +68,7 @@ function preview(text: string, max = 400): string {
 // POST /api/campaign-inbox { campaignId, offset?, limit? }
 //   → { email_campaign_stats: [...] }, one page of a campaign's replies
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

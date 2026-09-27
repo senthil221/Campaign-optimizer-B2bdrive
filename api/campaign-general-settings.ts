@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { UpstreamError, fetchCampaignSettings } from './_lib/campaign-settings.js'
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
 
 // GET /api/campaign-general-settings?id=123
 //   → { id, max_leads_per_day, send_as_plain_text, force_plain_text, track_settings }
@@ -7,8 +8,7 @@ import { UpstreamError, fetchCampaignSettings } from './_lib/campaign-settings.j
 // request per campaign. One read feeds both max leads/day and the plain-text /
 // tracking flags, which the retired GraphQL host served as two batched queries.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { smartleadJwt } from '../../api/_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
@@ -80,8 +81,7 @@ function preview(text: string, max = 400): string {
 
 // GET /api/campaign-sequences?id=123 → per-sequence/variant analytics for one campaign
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

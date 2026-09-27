@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+import { smartleadJwt } from '../../api/_lib/smartlead-jwt.js'
+
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
 // Two ways to READ a campaign's sequences, tried in order until one returns
@@ -188,8 +190,7 @@ async function readSequences(
 //        → read latest → append a new empty step → POST full payload →
 //          refetch (picks up the id Smartlead assigns) → { ok, payload }
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   const apiKey =
     process.env.SMARTLEAD_API_KEY ||
     (req.headers['x-smartlead-api-key'] as string) ||

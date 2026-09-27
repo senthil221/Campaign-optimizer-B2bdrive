@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { readSnapshotStatus, runSnapshotStep } from './_lib/smartlead-snapshot.js'
 
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed.' })
 
@@ -11,7 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.headers.authorization !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ error: 'Unauthorized.' })
   }
-  const jwt = process.env.SMARTLEAD_JWT?.trim()
+  const jwt = smartleadJwt()
   if (!jwt) return res.status(503).json({ error: 'SMARTLEAD_JWT is not configured.' })
 
   const deadline = Date.now() + 45_000

@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const MAX_RANGE_DAYS = 31
@@ -343,10 +344,7 @@ async function handleCampaignListBounces(
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT ||
-    (req.headers['x-smartlead-jwt'] as string) ||
-    ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:
@@ -472,10 +470,7 @@ async function handleCampaignBlacklist(
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT ||
-    (req.headers['x-smartlead-jwt'] as string) ||
-    ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:
@@ -607,10 +602,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'End date must not precede start date.' })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT ||
-    (req.headers['x-smartlead-jwt'] as string) ||
-    ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

@@ -1,12 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 // Server-side proxy for the provider/tag analytics used by Tag Overview.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error: 'No Smartlead JWT configured. Set SMARTLEAD_JWT in Vercel environment variables.',

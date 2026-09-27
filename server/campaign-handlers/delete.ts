@@ -6,6 +6,7 @@ import {
   campaignIdsFromBody,
   mapWithConcurrency,
 } from './fanout.js'
+import { smartleadJwt } from '../../api/_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
@@ -18,8 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   const apiKey =
     process.env.SMARTLEAD_API_KEY ||
     (req.headers['x-smartlead-api-key'] as string) ||

@@ -5,6 +5,7 @@ import {
   fetchCampaignSettings,
   patchCampaign,
 } from './_lib/campaign-settings.js'
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
 
 // POST /api/campaign-schedule { id, maxLeadsPerDay } → change only that field.
 //
@@ -14,8 +15,7 @@ import {
 // after: the write only reports success if the new value landed and no other
 // setting moved.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:

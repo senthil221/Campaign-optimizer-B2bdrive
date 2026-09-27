@@ -8,6 +8,8 @@ import {
   snapshotEnabled,
 } from './_lib/smartlead-snapshot.js'
 
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!snapshotEnabled()) {
     return res.status(503).json({
@@ -17,8 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
 
   try {
     if (req.method === 'GET') {

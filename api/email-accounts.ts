@@ -6,6 +6,7 @@ import {
   snapshotEnabled,
 } from './_lib/smartlead-snapshot.js'
 import { groupDomainsByCurrentLimit } from './_lib/outbound-groups.js'
+import { jwtProblem, smartleadJwt } from './_lib/smartlead-jwt.js'
 
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 const GQL_URL = 'https://fe-gql.smartlead.ai/v1/graphql'
@@ -1204,14 +1205,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return handleBulkSync(req, res)
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:
         'No Smartlead JWT configured. Set SMARTLEAD_JWT in Vercel → Settings → Environment Variables, or pass a JWT from the UI.',
     })
   }
+  const problem = jwtProblem(jwt)
+  if (problem) return res.status(400).json({ error: problem })
 
   const mode = Array.isArray(req.query.mode)
     ? req.query.mode[0]

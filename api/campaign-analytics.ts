@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+import { smartleadJwt } from './_lib/smartlead-jwt.js'
+
 const SMARTLEAD_BASE = 'https://server.smartlead.ai'
 
 // POST /api/campaign-analytics  body: { args: { campaign_ids: "{id1,id2,...}" } }
@@ -9,8 +11,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' })
   }
 
-  const jwt =
-    process.env.SMARTLEAD_JWT || (req.headers['x-smartlead-jwt'] as string) || ''
+  const jwt = smartleadJwt(req)
   if (!jwt) {
     return res.status(400).json({
       error:
