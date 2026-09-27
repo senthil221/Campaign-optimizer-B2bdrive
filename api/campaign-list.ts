@@ -15,7 +15,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ''
 
   const offset = Number(req.query.offset ?? 0) || 0
-  const limit = 100
+  // Smartlead's own UI pages by 25. Asking for 100 got a different, empty
+  // response ({"ok":true,"data":[]}) instead of {"data":{"results":[...]}}.
+  const limit = 25
 
   let url: string
   const headers: Record<string, string> = {}

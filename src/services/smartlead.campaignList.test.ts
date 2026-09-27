@@ -76,3 +76,46 @@ describe('campaign list shape changes', () => {
     )
   })
 })
+
+describe('campaign list response', () => {
+  it("reads campaigns and tags from Smartlead's data.results envelope", async () => {
+    // Trimmed from the captured get-all-campaigns response.
+    const page = {
+      data: {
+        results: [
+          {
+            id: 4024214,
+            name: '4-Qualifi-Qualifi_Unknown industry 3-10 TM',
+            status: 'ACTIVE',
+            created_at: '2026-09-25T12:49:35.638Z',
+            campaign_tags_mappings: [
+              { tag: { id: 331114, name: 'Qualifi Client', color: '#B1FCDA' } },
+              { tag: { id: 359287, name: '4-Qualifi', color: '#F5FCB1' } },
+            ],
+          },
+        ],
+      },
+    }
+    let call = 0
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify(call++ === 0 ? page : { data: { results: [] } }),
+    }))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    const { entries } = await fetchCampaignList('jwt')
+
+    expect(entries).toEqual([
+      {
+        id: 4024214,
+        name: '4-Qualifi-Qualifi_Unknown industry 3-10 TM',
+        status: 'ACTIVE',
+        tags: ['Qualifi Client', '4-Qualifi'],
+        createdAt: '2026-09-25T12:49:35.638Z',
+      },
+    ])
+    vi.useRealTimers()
+  })
+})
