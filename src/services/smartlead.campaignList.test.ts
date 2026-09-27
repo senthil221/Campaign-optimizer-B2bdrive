@@ -51,3 +51,28 @@ describe('campaign list paging', () => {
     vi.useRealTimers()
   })
 })
+
+describe('campaign list shape changes', () => {
+  function stubBody(body: unknown) {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify(body),
+    }))
+  }
+
+  it('reports the keys and body when no campaign array is recognised', async () => {
+    stubBody({ ok: true, data: { rows: [{ id: 1 }] } })
+    await expect(fetchCampaignList('jwt')).rejects.toThrow(
+      /no campaign array \(top-level keys: ok, data\)\. Response: \{"ok":true/,
+    )
+  })
+
+  it('reports an empty list rather than silently returning nothing', async () => {
+    stubBody({ campaigns: [] })
+    await expect(fetchCampaignList('jwt')).rejects.toThrow(
+      /empty campaign list \(top-level keys: campaigns\)/,
+    )
+  })
+})

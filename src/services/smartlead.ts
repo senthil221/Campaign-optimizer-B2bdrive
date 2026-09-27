@@ -1412,6 +1412,19 @@ export async function fetchCampaignList(
     }
 
     const rows = extractArray(json, ['campaigns', 'email_campaigns', 'results'])
+    // A successful first page with no campaigns is either a changed response
+    // shape or filters that match nothing; show what Smartlead actually sent.
+    if (byId.size === 0 && (!rows || rows.length === 0)) {
+      const keys =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? Object.keys(json as Record<string, unknown>).join(', ') || '(none)'
+          : Array.isArray(json)
+            ? '(array)'
+            : typeof json
+      throw new Error(
+        `${rows ? 'Smartlead returned an empty campaign list' : 'Smartlead returned no campaign array'} (top-level keys: ${keys}). Response: ${preview(text, 300)}`,
+      )
+    }
     if (!rows || rows.length === 0) break
 
     if (rawSample === null) rawSample = rows[0]
