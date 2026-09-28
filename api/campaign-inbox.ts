@@ -65,8 +65,106 @@ function preview(text: string, max = 400): string {
   return text.length > max ? `${text.slice(0, max)}… (truncated)` : text
 }
 
-// POST /api/campaign-inbox { campaignId, offset?, limit? }
-//   → { email_campaign_stats: [...] }, one page of a campaign's replies
+// Smartlead's own UI pages replies 25 at a time.
+const REPLY_PAGE_SIZE = 25
+// A step filter scans pages until it has a page of matches; this bounds one
+// request, and the returned cursor lets the drawer continue from there.
+const MAX_SCAN_PAGES = 20
+
+export interface ReplyCursor {
+  leadId: string
+  replyTime: string | null
+}
+
+/** ISO time in the form Smartlead's own cursor uses (…T18:09:14.000Z). */
+function isoTime(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+}
+
+/** Where the next page starts: after this lead, as Smartlead's cursor names it. */
+export function cursorAfter(lead: unknown): ReplyCursor | null {
+  const l = obj(lead)
+  const leadId = String(l.id ?? '').trim()
+  if (!leadId) return null
+  return {
+    leadId,
+    replyTime:
+      isoTime(l.latest_reply_time) ?? isoTime(obj(l.latest_reply_stats).reply_time),
+  }
+}
+
+function cursorFrom(value: unknown): ReplyCursor | null {
+  const c = obj(value)
+  const leadId = String(c.leadId ?? '').trim()
+  if (!leadId) return null
+  return { leadId, replyTime: isoTime(c.replyTime) }
+}
+
+/** The replied-leads request exactly as Smartlead's UI sends it. */
+export function repliesRequestBody(cursor: ReplyCursor | null): Json {
+  return {
+    limit: REPLY_PAGE_SIZE,
+    ...(cursor ? { lastSeenLeadId: cursor.leadId } : {}),
+    ...(cursor?.replyTime ? { lastSeenReplyTime: cursor.replyTime } : {}),
+    statusFilter: 'replied',
+    emailStatuses: ['got_reply'],
+    fieldSet: 'active_table',
+  }
+}
+
+class UpstreamFailure extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function fetchRepliesPage(
+  jwt: string,
+  campaignId: number,
+  cursor: ReplyCursor | null,
+): Promise<unknown[]> {
+  const upstream = await fetch(leadsFilterUrl(campaignId), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(repliesRequestBody(cursor)),
+  })
+  const text = await upstream.text()
+  if (!upstream.ok) {
+    throw new UpstreamFailure(
+      upstream.status,
+      `Smartlead replies request failed (${upstream.status}). Response: ${preview(text)}`,
+    )
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new UpstreamFailure(502, `Smartlead replies response was not JSON. Response: ${preview(text)}`)
+  }
+  const leads = obj(json).leads
+  if (!Array.isArray(leads)) {
+    throw new UpstreamFailure(
+      502,
+      `Smartlead replies response had no "leads" array. Top-level keys: ${
+        Object.keys(obj(json)).join(', ') || '(none)'
+      }.`,
+    )
+  }
+  return leads
+}
+
+// POST /api/campaign-inbox { campaignId, cursor?, seqId? }
+//   → { email_campaign_stats: [...], nextCursor }
+// One page of a campaign's replies. With seqId, only replies to that sequence
+// step: each reply records the step it answered (email_campaign_seq_id).
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const jwt = smartleadJwt(req)
   if (!jwt) {
@@ -86,67 +184,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Body must include a numeric "campaignId".' })
   }
 
-  if (Number(body.seqId) > 0 || Number(body.variantId) > 0) {
+  // Replies record their step but not their A/B variant.
+  if (Number(body.variantId) > 0) {
     return res.status(501).json({
       error:
-        "Replies for a single sequence step or variant aren't available yet on Smartlead's new API. Open replies from the campaign row instead.",
+        "Replies can't be split by A/B variant: Smartlead's reply data records the step but not the variant. Open replies from the step or the campaign row instead.",
     })
   }
-
-  const offset = Math.max(0, Number(body.offset) || 0)
-  const rawLimit = Number(body.limit)
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 20
+  const seqId = Number(body.seqId) > 0 ? Number(body.seqId) : null
 
   try {
-    // Smartlead's own request carries no offset, so rather than invent a
-    // paging field, ask for everything up to the end of this page and slice.
-    const upstream = await fetch(leadsFilterUrl(campaignId), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        limit: offset + limit,
-        statusFilter: 'replied',
-        emailStatuses: ['got_reply'],
-        fieldSet: 'active_table',
-      }),
-    })
-    const text = await upstream.text()
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({
-        error: `Smartlead replies request failed (${upstream.status}). Response: ${preview(text)}`,
-      })
-    }
+    let cursor = cursorFrom(body.cursor)
+    const rows: Json[] = []
 
-    let json: unknown
-    try {
-      json = JSON.parse(text)
-    } catch {
-      return res.status(502).json({
-        error: `Smartlead replies response was not JSON. Response: ${preview(text)}`,
-      })
+    for (let page = 0; page < MAX_SCAN_PAGES; page++) {
+      const leads = await fetchRepliesPage(jwt, campaignId, cursor)
+      for (const lead of leads) {
+        const row = replyRowFromLead(lead)
+        if (!row) continue
+        if (seqId !== null && Number(row.email_campaign_seq_id) !== seqId) continue
+        rows.push(row)
+      }
+      // A short page is the last one.
+      cursor = leads.length < REPLY_PAGE_SIZE ? null : cursorAfter(leads[leads.length - 1])
+      // Unfiltered, one Smartlead page is one drawer page. Filtered, keep
+      // scanning until a page's worth of matches has been found.
+      if (!cursor || seqId === null || rows.length >= REPLY_PAGE_SIZE) break
     }
-    const leads = Array.isArray(obj(json).leads) ? (obj(json).leads as unknown[]) : null
-    if (!leads) {
-      return res.status(502).json({
-        error: `Smartlead replies response had no "leads" array. Top-level keys: ${
-          Object.keys(obj(json)).join(', ') || '(none)'
-        }.`,
-      })
-    }
-
-    const rows = leads
-      .slice(offset, offset + limit)
-      .map(replyRowFromLead)
-      .filter((row): row is Json => row !== null)
 
     res.setHeader('cache-control', 'private, max-age=0, no-store')
-    return res.status(200).json({ email_campaign_stats: rows })
+    return res.status(200).json({ email_campaign_stats: rows, nextCursor: cursor })
   } catch (e) {
-    return res.status(502).json({
-      error: `Proxy failed: ${e instanceof Error ? e.message : String(e)}`,
+    const status = e instanceof UpstreamFailure ? e.status : 502
+    return res.status(status).json({
+      error: e instanceof Error ? e.message : String(e),
     })
   }
 }

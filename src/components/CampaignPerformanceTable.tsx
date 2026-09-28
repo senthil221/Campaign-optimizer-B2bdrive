@@ -6,11 +6,15 @@ import type {
   CampaignOperationResult,
   CampaignPerformance,
   CampaignSequencePayload,
-  InboxReply,
   SequenceEditRequest,
   SequenceStat,
 } from '../types'
-import type { CampaignStatusAction, InboxQuery } from '../services/smartlead'
+import type {
+  CampaignStatusAction,
+  InboxCursor,
+  InboxPage,
+  InboxQuery,
+} from '../services/smartlead'
 import CampaignInboxDrawer from './CampaignInboxDrawer'
 import Portal from './Portal'
 import SequenceEditor from './SequenceEditor'
@@ -65,7 +69,7 @@ interface Props {
     campaignIds: number[],
   ) => Promise<CampaignOperationResult>
   fetchSequences: (campaignId: number) => Promise<SequenceStat[]>
-  fetchInbox: (query: InboxQuery) => Promise<InboxReply[]>
+  fetchInbox: (query: InboxQuery, cursor: InboxCursor | null) => Promise<InboxPage>
   fetchSequenceEditor: (campaignId: number) => Promise<CampaignSequencePayload>
   saveSequenceEdit: (req: SequenceEditRequest) => Promise<CampaignSequencePayload>
   visibleCols: Record<string, boolean>

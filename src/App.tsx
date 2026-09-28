@@ -36,6 +36,7 @@ import {
   validateDomainDns,
   updateMaxLeadsPerDay,
   type CampaignStatusAction,
+  type InboxCursor,
   type InboxQuery,
 } from './services/smartlead'
 import type { SequenceEditRequest } from './types'
@@ -755,7 +756,8 @@ export default function App() {
   )
 
   const fetchInbox = useCallback(
-    (query: InboxQuery) => fetchCampaignInbox('', query),
+    (query: InboxQuery, cursor: InboxCursor | null) =>
+      fetchCampaignInbox('', query, cursor),
     [],
   )
 

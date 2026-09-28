@@ -2015,54 +2015,72 @@ function normalizeInboxReply(raw: Record<string, unknown>): InboxReply {
   }
 }
 
+/** Where the next page of replies starts, in Smartlead's own cursor terms. */
+export interface InboxCursor {
+  leadId: string
+  replyTime: string | null
+}
+
 export interface InboxQuery {
   campaignId: number
-  offset?: number
-  limit?: number
   /** Restrict to one sequence step (email_campaign_seq_id). */
   seqId?: number
-  /** Restrict to one A/B variant (seq_variant_id). */
+  /** Restrict to one A/B variant; Smartlead cannot, so the proxy refuses it. */
   variantId?: number
 }
 
+export interface InboxPage {
+  replies: InboxReply[]
+  /** null once there are no more replies. */
+  nextCursor: InboxCursor | null
+}
+
 /**
- * Fetch one page of replied leads for a campaign (optionally scoped to a single
- * sequence variant). Ordered newest reply first, matching Smartlead's Inbox.
+ * Fetch one page of replied leads for a campaign, optionally only those
+ * answering one sequence step. Pass the previous page's nextCursor to continue.
  */
 export async function fetchCampaignInbox(
   jwt: string,
   query: InboxQuery,
-): Promise<InboxReply[]> {
+  cursor: InboxCursor | null = null,
+): Promise<InboxPage> {
   const res = await fetch(CAMPAIGN_INBOX_URL, {
     method: 'POST',
     headers: authHeaders(jwt),
     body: JSON.stringify({
       campaignId: query.campaignId,
-      offset: query.offset ?? 0,
-      limit: query.limit ?? 20,
+      cursor,
       seqId: query.seqId,
       variantId: query.variantId,
     }),
   })
   const text = await res.text()
+  let json: Record<string, unknown> = {}
+  try {
+    json = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    // Reported below.
+  }
   if (!res.ok) {
     throw new Error(
-      `Inbox request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
+      String(json.error ?? '') ||
+        `Inbox request failed (${res.status} ${res.statusText}). Response: ${preview(text)}`,
     )
   }
-  let json: unknown
-  try {
-    json = JSON.parse(text)
-  } catch {
-    throw new Error(`Inbox response was not JSON. Response: ${preview(text)}`)
-  }
-  const obj = json as Record<string, unknown>
-  if (Array.isArray(obj?.errors) && obj.errors.length) {
-    throw new Error(`Smartlead GraphQL error: ${preview(obj.errors)}`)
-  }
   const rows = extractArray(json, ['email_campaign_stats'])
-  if (!rows) return []
-  return rows.map((r) => normalizeInboxReply((r ?? {}) as Record<string, unknown>))
+  if (!rows) throw new Error(`Inbox response had no replies array. Response: ${preview(text)}`)
+
+  const next = (json.nextCursor ?? null) as Record<string, unknown> | null
+  return {
+    replies: rows.map((r) => normalizeInboxReply((r ?? {}) as Record<string, unknown>)),
+    nextCursor:
+      next && typeof next.leadId === 'string' && next.leadId
+        ? {
+            leadId: next.leadId,
+            replyTime: typeof next.replyTime === 'string' ? next.replyTime : null,
+          }
+        : null,
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ afterEach(() => {
 })
 
 describe('sequence analytics rows', () => {
-  it('shows a step as one row of its totals when variants carry no stats', () => {
+  it('shows a step as one row of its totals when its variants carry no stats', () => {
     const rows = sequenceRows(4024214, { ok: true, data: { sequences: [STEP_1] } })
 
     expect(rows).toEqual([
@@ -62,8 +62,8 @@ describe('sequence analytics rows', () => {
     const step = {
       ...STEP_1,
       variants: [
-        { id: 1, variant_label: 'A', total_stats: stats(1500, 2) },
-        { id: 2, variant_label: 'B', total_stats: stats(1354, 1) },
+        { id: 1, variant_label: 'A', stats: stats(1500, 2) },
+        { id: 2, variant_label: 'B', stats: stats(1354, 1) },
       ],
     }
     const rows = sequenceRows(9, { data: { sequences: [step] } })!
@@ -79,7 +79,7 @@ describe('sequence analytics rows', () => {
     const step = {
       ...STEP_1,
       variants: [
-        { id: 1, variant_label: 'A', total_stats: stats(1500, 2) },
+        { id: 1, variant_label: 'A', stats: stats(1500, 2) },
         { id: 2, variant_label: 'B' },
       ],
     }
@@ -134,5 +134,32 @@ describe('sequence analytics rows', () => {
     expect(calls[0].init.method).toBe('GET')
     expect(captured.status).toBe(200)
     expect((captured.body.grouped_email_campaign_stats as unknown[]).length).toBe(1)
+  })
+})
+
+describe('variant rows', () => {
+  it('keeps a single-variant step as one step row', () => {
+    // As captured from campaign 3952088: variant A carries its own stats.
+    const step = {
+      ...STEP_1,
+      variants: [{ id: 7673017, variant_label: 'A', is_baseline: true, stats: stats(1134, 15) }],
+    }
+    const rows = sequenceRows(3952088, { ok: true, data: { sequences: [step] } })!
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ variant_label: null, seq_variant_id: null, sent_count: 2854 })
+  })
+
+  it("reads each variant's numbers from its stats field", () => {
+    const step = {
+      ...STEP_1,
+      variants: [
+        { id: 1, variant_label: 'A', total_stats: stats(1, 1), stats: stats(1500, 2) },
+        { id: 2, variant_label: 'B', stats: stats(1354, 1) },
+      ],
+    }
+    const rows = sequenceRows(9, { data: { sequences: [step] } })!
+
+    expect(rows.map((r) => r.sent_count)).toEqual([1500, 1354])
   })
 })

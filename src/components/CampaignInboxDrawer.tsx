@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { InboxReply } from '../types'
-import type { InboxQuery } from '../services/smartlead'
+import type { InboxCursor, InboxPage, InboxQuery } from '../services/smartlead'
 import Portal from './Portal'
 
-const PAGE_SIZE = 20
 
 interface Props {
   /** Non-null opens the drawer and identifies which replies to load. */
@@ -13,7 +12,7 @@ interface Props {
   /** Replied count for the header hint (from the row that was clicked). */
   totalReplied?: number
   onClose: () => void
-  fetchInbox: (query: InboxQuery) => Promise<InboxReply[]>
+  fetchInbox: (query: InboxQuery, cursor: InboxCursor | null) => Promise<InboxPage>
 }
 
 // "2026-07-10T15:13:00+00:00" → "Jul 10, 3:13 PM"
@@ -188,7 +187,9 @@ export default function CampaignInboxDrawer({
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hasMore, setHasMore] = useState(false)
+  // Where "Load more" continues from; null when there is nothing more.
+  const [nextCursor, setNextCursor] = useState<InboxCursor | null>(null)
+  const hasMore = nextCursor !== null
   const [fullscreen, setFullscreen] = useState<InboxReply | null>(null)
 
   // Identity of the current open request, so a stale response can't land after
@@ -196,21 +197,21 @@ export default function CampaignInboxDrawer({
   const reqIdRef = useRef(0)
 
   const load = useCallback(
-    async (q: InboxQuery, offset: number) => {
+    async (q: InboxQuery, cursor: InboxCursor | null) => {
       const reqId = ++reqIdRef.current
-      if (offset === 0) {
+      if (cursor === null) {
         setLoading(true)
         setReplies([])
         setError(null)
-        setHasMore(false)
+        setNextCursor(null)
       } else {
         setLoadingMore(true)
       }
       try {
-        const page = await fetchInbox({ ...q, offset, limit: PAGE_SIZE })
+        const page = await fetchInbox(q, cursor)
         if (reqId !== reqIdRef.current) return
-        setReplies((prev) => (offset === 0 ? page : [...prev, ...page]))
-        setHasMore(page.length === PAGE_SIZE)
+        setReplies((prev) => (cursor === null ? page.replies : [...prev, ...page.replies]))
+        setNextCursor(page.nextCursor)
       } catch (e) {
         if (reqId !== reqIdRef.current) return
         setError(e instanceof Error ? e.message : String(e))
@@ -228,7 +229,7 @@ export default function CampaignInboxDrawer({
   useEffect(() => {
     if (!query) return
     setFullscreen(null)
-    void load(query, 0)
+    void load(query, null)
   }, [query, load])
 
   // Esc to close + lock body scroll while open. When the full-screen reader is
@@ -318,7 +319,7 @@ export default function CampaignInboxDrawer({
 
           {!loading && !error && hasMore && (
             <button
-              onClick={() => query && load(query, replies.length)}
+              onClick={() => query && load(query, nextCursor)}
               disabled={loadingMore}
               className="mt-1 w-full rounded-xl border border-line bg-white/[0.02] py-2.5 text-[13px] font-medium text-muted transition hover:border-lime/30 hover:text-ink disabled:opacity-50"
             >

@@ -13,9 +13,9 @@ function obj(value: unknown): Json {
   return value && typeof value === 'object' ? (value as Json) : {}
 }
 
-/** Stats in the step's own shape, recognised by a numeric sent_count. */
-function statsOf(value: unknown): Json | null {
-  const stats = obj(obj(value).total_stats)
+/** A step's total_stats or a variant's stats, recognised by a numeric sent_count. */
+function statsOf(value: unknown, key: 'total_stats' | 'stats'): Json | null {
+  const stats = obj(obj(value)[key])
   return typeof stats.sent_count === 'number' ? stats : null
 }
 
@@ -48,8 +48,8 @@ function row(
 /**
  * sequence-analytics nests variants under each step; the client reads the old
  * flat grouped_email_campaign_stats rows (one per step, or per step+variant).
- * A step splits into variant rows only when every variant carries stats in
- * the step's own shape — otherwise it is one row with the step's totals, so an
+ * A step with two or more variants splits into variant rows when every variant
+ * carries its own stats; otherwise it is one row with the step's totals, so an
  * unfamiliar variant format loses detail rather than showing zeros.
  */
 export function sequenceRows(campaignId: number, payload: unknown): Json[] | null {
@@ -61,8 +61,11 @@ export function sequenceRows(campaignId: number, payload: unknown): Json[] | nul
     .sort((a, b) => Number(a.seq_number ?? 0) - Number(b.seq_number ?? 0))
     .flatMap((step) => {
       const variants = Array.isArray(step.variants) ? step.variants.map(obj) : []
-      const variantStats = variants.map(statsOf)
-      if (variants.length > 0 && variantStats.every((stats) => stats !== null)) {
+      const variantStats = variants.map((variant) => statsOf(variant, 'stats'))
+      // One variant is the step itself; keeping it a step row keeps the
+      // per-step invalid-bounce count and per-step replies, which Smartlead's
+      // lead data cannot split by variant.
+      if (variants.length > 1 && variantStats.every((stats) => stats !== null)) {
         return variants.map((variant, i) =>
           row(campaignId, step, variantStats[i]!, {
             id: variant.id,
@@ -70,7 +73,7 @@ export function sequenceRows(campaignId: number, payload: unknown): Json[] | nul
           }),
         )
       }
-      const stepStats = statsOf(step)
+      const stepStats = statsOf(step, 'total_stats')
       return stepStats ? [row(campaignId, step, stepStats, null)] : []
     })
 }
