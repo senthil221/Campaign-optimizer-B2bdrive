@@ -136,24 +136,43 @@ async function tagRestRequest(jwt: string, url: string, method: 'GET' | 'DELETE'
   }
 }
 
-/** Every tag in the workspace. */
+// Smartlead's own UI requests ?limit=20. Omitting the limit returned only
+// that default page, and later started failing with a 500.
+const TAG_PAGE_SIZE = 20
+const MAX_TAG_PAGES = 100
+
+/** Every tag in the workspace, which bulk tagging needs to map names to ids. */
 async function fetchAllTags(jwt: string) {
-  // Smartlead's UI asks for ?limit=20 per page; with no limit the API returns
-  // the whole list, which the name → id lookup for bulk tagging depends on.
-  const { ok, payload, message } = await tagRestRequest(jwt, TAGS_URL, 'GET')
-  if (!ok) throw new Error(message)
-  if (!Array.isArray(payload.data)) {
-    throw new Error('Smartlead tag response had no "data" array.')
-  }
   const tags: ReturnType<typeof normalizeTag>[] = []
   const seenIds = new Set<number>()
-  for (const row of payload.data) {
-    const tag = normalizeTag(objectValue(row) as UpstreamTag)
-    if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
-    seenIds.add(tag.id)
-    tags.push(tag)
+  let offset = 0
+
+  for (let page = 0; page < MAX_TAG_PAGES; page++) {
+    // The first page is exactly Smartlead's own request. Later pages add
+    // offset, which Smartlead's other list APIs use; if it were ignored, the
+    // next page would repeat this one and the no-new-tags check stops paging.
+    const url =
+      page === 0
+        ? `${TAGS_URL}?limit=${TAG_PAGE_SIZE}`
+        : `${TAGS_URL}?limit=${TAG_PAGE_SIZE}&offset=${offset}`
+    const { ok, status, payload, message } = await tagRestRequest(jwt, url, 'GET')
+    if (!ok) throw new Error(`Smartlead tags request failed (${status}): ${message}`)
+    if (!Array.isArray(payload.data)) {
+      throw new Error('Smartlead tag response had no "data" array.')
+    }
+
+    let added = 0
+    for (const row of payload.data) {
+      const tag = normalizeTag(objectValue(row) as UpstreamTag)
+      if (!tag.id || !tag.name || seenIds.has(tag.id)) continue
+      seenIds.add(tag.id)
+      tags.push(tag)
+      added++
+    }
+    if (payload.data.length < TAG_PAGE_SIZE || added === 0) return tags
+    offset += payload.data.length
   }
-  return tags
+  throw new Error(`Tag loading stopped after ${MAX_TAG_PAGES * TAG_PAGE_SIZE} tags.`)
 }
 
 async function listTags(res: VercelResponse, jwt: string) {

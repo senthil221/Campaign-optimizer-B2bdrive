@@ -205,7 +205,7 @@ describe('tags on the v2 REST API', () => {
     })
   }
 
-  it('lists every tag from the v2 endpoint, with no page limit', async () => {
+  it("lists tags with the page size Smartlead's own UI requests", async () => {
     stubTags(
       200,
       JSON.stringify({
@@ -223,7 +223,7 @@ describe('tags on the v2 REST API', () => {
       res,
     )
 
-    expect(restCalls).toEqual([{ url: TAGS_URL, method: 'GET', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' }])
+    expect(restCalls).toEqual([{ url: `${TAGS_URL}?limit=20`, method: 'GET', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' }])
     expect(captured.status).toBe(200)
     expect(captured.body.tags).toEqual([
       { id: 520819, name: 'MVinix - Client', color: '#40826d', createdAt: '2026-09-21T09:26:32.413Z' },
@@ -258,5 +258,51 @@ describe('tags on the v2 REST API', () => {
 
     expect(captured.status).toBe(502)
     expect(captured.body.error).toBe('Invalid token')
+  })
+})
+
+describe('tag paging', () => {
+  const TAGS_URL = 'https://sl-fe-v2.smartlead.ai/api/v1/tags'
+  const tag = (id: number) => ({ id, name: `Tag ${id}`, color: '#B1FCFA', created_at: null })
+
+  async function listTagsWith(serve: (url: URL) => unknown[]) {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url)
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ success: true, data: serve(new URL(url)) }),
+      }
+    })
+    const { res, captured } = fakeRes()
+    await handler(
+      { method: 'GET', body: {}, headers: {}, query: { mode: 'tags' } } as unknown as VercelRequest,
+      res,
+    )
+    return { urls, captured }
+  }
+
+  it('pages past the first 20 tags with offset', async () => {
+    const all = Array.from({ length: 45 }, (_, i) => tag(i + 1))
+    const { urls, captured } = await listTagsWith((url) => {
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      return all.slice(offset, offset + 20)
+    })
+
+    expect(urls).toEqual([
+      `${TAGS_URL}?limit=20`,
+      `${TAGS_URL}?limit=20&offset=20`,
+      `${TAGS_URL}?limit=20&offset=40`,
+    ])
+    expect((captured.body.tags as unknown[]).length).toBe(45)
+  })
+
+  it('stops instead of looping if Smartlead ignores offset', async () => {
+    const first = Array.from({ length: 20 }, (_, i) => tag(i + 1))
+    const { urls, captured } = await listTagsWith(() => first)
+
+    expect(urls).toHaveLength(2)
+    expect((captured.body.tags as unknown[]).length).toBe(20)
   })
 })
