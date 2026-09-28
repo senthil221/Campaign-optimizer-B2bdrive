@@ -80,7 +80,7 @@ interface Props {
 interface InboxTarget {
   query: InboxQuery
   label: string
-  totalReplied: number
+  totalReplied?: number
 }
 
 /** The campaign whose sequences are open in the editor. */
@@ -1300,17 +1300,21 @@ export default function CampaignPerformanceTable({
                     <td colSpan={colCount} className="p-0">
                       <SequenceBreakdown
                         state={seqCache[c.campaignId]}
+                        // Smartlead records which step a reply answered but not
+                        // which A/B variant, so a variant row opens its whole
+                        // step, labelled as such.
                         onOpenInbox={(s) =>
                           setInbox({
                             query: {
                               campaignId: c.campaignId,
                               seqId: s.emailCampaignSeqId || undefined,
-                              variantId: s.seqVariantId || undefined,
                             },
                             label: `${c.campaignName} · Email ${s.seqNumber}${
-                              s.variantLabel ? ` – ${s.variantLabel}` : ''
+                              s.variantLabel
+                                ? ` · all variants (replies aren't tracked per variant)`
+                                : ''
                             }`,
-                            totalReplied: s.replied,
+                            totalReplied: s.variantLabel ? undefined : s.replied,
                           })
                         }
                       />
