@@ -205,7 +205,7 @@ describe('tags on the v2 REST API', () => {
     })
   }
 
-  it("lists tags with the page size Smartlead's own UI requests", async () => {
+  it("lists tags with the request Smartlead's own UI makes", async () => {
     stubTags(
       200,
       JSON.stringify({
@@ -223,7 +223,7 @@ describe('tags on the v2 REST API', () => {
       res,
     )
 
-    expect(restCalls).toEqual([{ url: `${TAGS_URL}?limit=20`, method: 'GET', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' }])
+    expect(restCalls).toEqual([{ url: `${TAGS_URL}?limit=500`, method: 'GET', auth: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwfQ.c2lnbmF0dXJl' }])
     expect(captured.status).toBe(200)
     expect(captured.body.tags).toEqual([
       { id: 520819, name: 'MVinix - Client', color: '#40826d', createdAt: '2026-09-21T09:26:32.413Z' },
@@ -265,15 +265,11 @@ describe('tag paging', () => {
   const TAGS_URL = 'https://sl-fe-v2.smartlead.ai/api/v1/tags'
   const tag = (id: number) => ({ id, name: `Tag ${id}`, color: '#B1FCFA', created_at: null })
 
-  async function listTagsWith(serve: (url: URL) => unknown[]) {
+  async function listTagsWith(body: unknown) {
     const urls: string[] = []
     vi.stubGlobal('fetch', async (url: string) => {
       urls.push(url)
-      return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ success: true, data: serve(new URL(url)) }),
-      }
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) }
     })
     const { res, captured } = fakeRes()
     await handler(
@@ -283,26 +279,26 @@ describe('tag paging', () => {
     return { urls, captured }
   }
 
-  it('pages past the first 20 tags with offset', async () => {
-    const all = Array.from({ length: 45 }, (_, i) => tag(i + 1))
-    const { urls, captured } = await listTagsWith((url) => {
-      const offset = Number(url.searchParams.get('offset') ?? 0)
-      return all.slice(offset, offset + 20)
+  it('loads every tag from the one ?limit=500 reply, as Smartlead does', async () => {
+    const all = Array.from({ length: 102 }, (_, i) => tag(i + 1))
+    const { urls, captured } = await listTagsWith({
+      success: true,
+      data: all,
+      pagination: { hasMore: false, limit: 500, nextCursor: null },
     })
 
-    expect(urls).toEqual([
-      `${TAGS_URL}?limit=20`,
-      `${TAGS_URL}?limit=20&offset=20`,
-      `${TAGS_URL}?limit=20&offset=40`,
-    ])
-    expect((captured.body.tags as unknown[]).length).toBe(45)
+    expect(urls).toEqual([`${TAGS_URL}?limit=500`])
+    expect((captured.body.tags as unknown[]).length).toBe(102)
   })
 
-  it('stops instead of looping if Smartlead ignores offset', async () => {
-    const first = Array.from({ length: 20 }, (_, i) => tag(i + 1))
-    const { urls, captured } = await listTagsWith(() => first)
+  it('says so instead of showing a partial list when Smartlead has more', async () => {
+    const { captured } = await listTagsWith({
+      success: true,
+      data: [tag(1)],
+      pagination: { hasMore: true, limit: 500, nextCursor: 'abc' },
+    })
 
-    expect(urls).toHaveLength(2)
-    expect((captured.body.tags as unknown[]).length).toBe(20)
+    expect(captured.status).not.toBe(200)
+    expect(String(captured.body.error)).toMatch(/more than 500 tags/)
   })
 })
