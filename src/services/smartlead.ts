@@ -939,6 +939,23 @@ export async function fetchEmailAccounts(
 }
 
 /**
+ * Re-read every inbox after a bulk write. Meant to run in the background: with
+ * the snapshot on, this re-copies the whole workspace (about 2.5 minutes for
+ * 10k inboxes), which is why a write no longer waits for it.
+ */
+export async function refreshEmailAccountsAfterWrite(
+  jwt: string,
+): Promise<EmailAccount[]> {
+  if (!snapshotAvailable) return fetchEmailAccountsDirect(jwt)
+  // A sync already running may have read some pages before this write landed,
+  // so let it finish and then copy again.
+  if (snapshotSyncPromise) await snapshotSyncPromise.catch(() => undefined)
+  await continueSnapshotSync(jwt, true)
+  const refreshed = await snapshotRequest(jwt)
+  return refreshed?.accounts ?? fetchEmailAccountsDirect(jwt)
+}
+
+/**
  * Smartlead returns one tag row per email provider. Sum duplicate tags so the
  * overview exposes a single live count for each sending pool.
  */

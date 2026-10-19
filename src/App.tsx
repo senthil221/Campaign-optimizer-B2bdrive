@@ -21,6 +21,7 @@ import {
   fetchCampaignSequences,
   executeBulkSync,
   fetchEmailAccounts,
+  refreshEmailAccountsAfterWrite,
   fetchDomainBounceRisks,
   fetchDomainHealthMetrics,
   fetchTagSendPerformance,
@@ -480,47 +481,70 @@ export default function App() {
     return refreshDomainManagement()
   }, [loadBlacklist, refreshDomainManagement])
 
-  const handleDomainSettingsUpdate = useCallback(
-    async (request: DomainBulkUpdateRequest): Promise<string> => {
-      const result = await updateDomainSettings('', request)
-      setManagementLoading(true)
-      setManagementError(null)
-      try {
-        setAccounts(await fetchEmailAccounts('', true))
+  // Counts bulk writes so a slow background refresh never overwrites the
+  // table after a newer write has already patched it.
+  const settingsWriteGeneration = useRef(0)
+
+  // Re-reading every inbox (a full snapshot re-copy when the database is on)
+  // takes minutes, so it runs after a write is reported as done.
+  const refreshAccountsInBackground = useCallback((failure: string) => {
+    const generation = ++settingsWriteGeneration.current
+    setManagementError(null)
+    void refreshEmailAccountsAfterWrite('')
+      .then((accounts) => {
+        if (generation !== settingsWriteGeneration.current) return
+        setAccounts(accounts)
         setManagementLastUpdated(new Date())
-        return result.message
-      } catch (refreshError) {
+      })
+      .catch((refreshError: unknown) => {
+        if (generation !== settingsWriteGeneration.current) return
         const detail =
           refreshError instanceof Error
             ? refreshError.message
             : String(refreshError)
-        setManagementError(`Settings updated, but refresh failed: ${detail}`)
-        return `${result.message} Refresh the page to confirm the latest values.`
-      } finally {
-        setManagementLoading(false)
+        setManagementError(`${failure}, but refreshing the inbox list failed: ${detail}`)
+      })
+  }, [])
+
+  const handleDomainSettingsUpdate = useCallback(
+    async (request: DomainBulkUpdateRequest): Promise<string> => {
+      const result = await updateDomainSettings('', request)
+      refreshAccountsInBackground('Settings updated')
+
+      // Show the values Smartlead just accepted straight away. Tags are left
+      // to the refresh: whether the bulk write adds to or replaces an inbox's
+      // tags has not been confirmed.
+      const ids = new Set(request.accounts.map((account) => account.id))
+      const settings = (request.settings ?? {}) as Record<string, unknown>
+      const patch: Partial<EmailAccount> = {}
+      if (request.action === 'outbound') {
+        if (typeof settings.minTimeToWaitInMins === 'number') {
+          patch.minTimeBtwnEmails = settings.minTimeToWaitInMins
+        }
+        if (!request.preserveMessagePerDay && typeof settings.messagePerDay === 'number') {
+          patch.messagePerDay = settings.messagePerDay
+        }
+      } else if (request.action === 'warmup_toggle' && typeof settings.status === 'string') {
+        patch.warmupStatus = settings.status
       }
+      if (Object.keys(patch).length > 0) {
+        setAccounts((current) =>
+          current.map((account) =>
+            ids.has(account.id) ? { ...account, ...patch } : account,
+          ),
+        )
+      }
+
+      return `${result.message} The inbox list refreshes in the background.`
     },
-    [],
+    [refreshAccountsInBackground],
   )
 
   const handleValidateDomainDns = useCallback(async (): Promise<string> => {
     const message = await validateDomainDns('')
-    setManagementLoading(true)
-    setManagementError(null)
-    try {
-      setAccounts(await fetchEmailAccounts('', true))
-      setManagementLastUpdated(new Date())
-    } catch (refreshError) {
-      const detail =
-        refreshError instanceof Error ? refreshError.message : String(refreshError)
-      setManagementError(
-        `DNS validation completed, but account refresh failed: ${detail}`,
-      )
-    } finally {
-      setManagementLoading(false)
-    }
-    return message
-  }, [])
+    refreshAccountsInBackground('DNS validation completed')
+    return `${message} The inbox list refreshes in the background.`
+  }, [refreshAccountsInBackground])
 
   const handleDeleteInboxes = useCallback(
     async (emailAccountIds: number[]): Promise<string> => {
@@ -547,22 +571,9 @@ export default function App() {
 
   const handleBulkReconnect = useCallback(async (): Promise<string> => {
     const message = await bulkReconnectEmailAccounts('')
-    setManagementLoading(true)
-    setManagementError(null)
-    try {
-      setAccounts(await fetchEmailAccounts('', true))
-      setManagementLastUpdated(new Date())
-    } catch (refreshError) {
-      const detail =
-        refreshError instanceof Error ? refreshError.message : String(refreshError)
-      setManagementError(
-        `Bulk reconnect started, but account refresh failed: ${detail}`,
-      )
-    } finally {
-      setManagementLoading(false)
-    }
-    return message
-  }, [])
+    refreshAccountsInBackground('Bulk reconnect started')
+    return `${message} The inbox list refreshes in the background.`
+  }, [refreshAccountsInBackground])
 
   useEffect(() => {
     // Waits for the campaign list: bounce risks are scanned per campaign, and
